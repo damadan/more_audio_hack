@@ -1,6 +1,6 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, HTMLResponse, Response
+from fastapi.responses import StreamingResponse, HTMLResponse, Response, JSONResponse
 import json
 import logging
 import time
@@ -9,12 +9,7 @@ import struct
 from pathlib import Path
 import re
 
-from prometheus_client import (
-    Counter,
-    Histogram,
-    CONTENT_TYPE_LATEST,
-    generate_latest,
-)
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from pydantic import TypeAdapter, ValidationError
@@ -38,17 +33,26 @@ from app.schemas import (
     ReportRequest,
     ATSSyncRequest,
 )
-from app.dialog_manager import build_prompt as dm_build_prompt
+from app.dialog_manager import build_prompt as dm_build_prompt, mock_next
 from app.match import (
     build_indicator_index,
     match_spans,
     compute_coverage,
 )
-from app.tts import pcm_to_wav, stream_bytes, synthesize
+from app.tts_local import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
 from app.scoring import final_score as compute_final_score
 from app.config import settings
 from app.rubric import score_rubric
+from app.ats import sync as ats_sync_impl
+from app.obs import (
+    HTTP_REQUESTS_TOTAL,
+    HTTP_REQUEST_LATENCY,
+    ASR_PARTIAL_LATENCY,
+    ASR_FINAL_LATENCY,
+    SCORE_OVERALL_HIST,
+    DM_LATENCY,
+)
 
 from jinja2 import Environment, FileSystemLoader
 import os
@@ -94,23 +98,16 @@ _handler.setFormatter(PIIFormatter())
 logger.addHandler(_handler)
 
 
-REQUEST_COUNT = Counter(
-    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "http_status"]
-)
-REQUEST_LATENCY = Histogram(
-    "request_latency_seconds", "Request latency", ["method", "endpoint"]
-)
-ASR_PARTIAL_LATENCY = Histogram("asr_partial_latency", "ASR partial latency")
-ASR_FINAL_LATENCY = Histogram("asr_final_latency", "ASR final latency")
-SCORE_OVERALL_HIST = Histogram("score_overall_hist", "Final score histogram")
-
-
 class MetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         start = time.time()
         response = await call_next(request)
-        REQUEST_COUNT.labels(request.method, request.url.path, str(response.status_code)).inc()
-        REQUEST_LATENCY.labels(request.method, request.url.path).observe(time.time() - start)
+        HTTP_REQUESTS_TOTAL.labels(
+            request.method, request.url.path, str(response.status_code)
+        ).inc()
+        HTTP_REQUEST_LATENCY.labels(request.method, request.url.path).observe(
+            time.time() - start
+        )
         return response
 
 
@@ -132,6 +129,17 @@ DM_JSON_SCHEMA = {
 }
 
 NextActionAdapter = TypeAdapter(NextAction)
+
+
+def _vllm_available() -> bool:
+    base = settings.VLLM_BASE_URL
+    if not base:
+        return False
+    try:
+        resp = requests.get(f"{base.rstrip('/')}/v1/models", timeout=2)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 
 @app.get("/healthz")
@@ -241,25 +249,43 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
 
 @app.post("/tts")
 async def tts(req: TTSRequest):
-    pcm, sample_rate = synthesize(req.text, req.voice)
+    start = time.time()
+    pcm, sample_rate, engine, mode = synthesize(req.text, req.voice)
     if req.format == "wav":
         data = pcm_to_wav(pcm, sample_rate)
         media_type = "audio/wav"
     else:
         data = pcm
         media_type = "audio/L16"
-    return StreamingResponse(stream_bytes(data), media_type=media_type)
+    return StreamingResponse(
+        stream_bytes(data, engine, mode, start), media_type=media_type
+    )
 
 
 @app.post("/dm/next")
-async def dm_next(req: DMRequest) -> NextAction:
-    prompt = dm_build_prompt(req.jd, req.context.turns, req.coverage)
-    client = LLMClient.from_env()
-    raw = client.generate_json(prompt=prompt, json_schema=DM_JSON_SCHEMA)
-    try:
-        return NextActionAdapter.validate_python(raw)
-    except ValidationError as exc:  # pragma: no cover - should rarely happen
-        raise HTTPException(status_code=500, detail=f"LLM JSON invalid: {exc}")
+async def dm_next(req: DMRequest, request: Request) -> NextAction:
+    use_mock = False
+    if settings.ALLOW_DM_MOCK:
+        if (
+            request.query_params.get("mock") == "1"
+            or request.headers.get("X-Mock") == "1"
+            or not _vllm_available()
+        ):
+            use_mock = True
+    mode = "mock" if use_mock else "real"
+    start = time.time()
+    if use_mock:
+        result = mock_next(req)
+    else:
+        prompt = dm_build_prompt(req.jd, req.context.turns, req.coverage)
+        client = LLMClient.from_env()
+        raw = client.generate_json(prompt=prompt, json_schema=DM_JSON_SCHEMA)
+        try:
+            result = NextActionAdapter.validate_python(raw)
+        except ValidationError as exc:  # pragma: no cover - should rarely happen
+            raise HTTPException(status_code=500, detail=f"LLM JSON invalid: {exc}")
+    DM_LATENCY.labels(mode=mode).observe(time.time() - start)
+    return result
 
 
 @app.post("/ie/extract")
@@ -329,25 +355,5 @@ async def report(req: ReportRequest, fmt: str = "html"):
 
 @app.post("/ats/sync")
 async def ats_sync(req: ATSSyncRequest):
-    url = os.environ.get("MOCK_ATS_URL")
-    if not url:
-        raise HTTPException(status_code=500, detail="MOCK_ATS_URL not set")
-    headers = {"Idempotency-Key": f"{req.candidate_id}:{req.vacancy_id}"}
-    payload = req.model_dump()
-    delay = 1.0
-    for attempt in range(3):
-        try:
-            resp = requests.post(url, json=payload, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                return {"status": "ok"}
-            if resp.status_code >= 500:
-                raise Exception("server error")
-            raise HTTPException(status_code=resp.status_code, detail=resp.text)
-        except HTTPException:
-            raise
-        except Exception:
-            if attempt == 2:
-                raise HTTPException(status_code=502, detail="ATS sync failed")
-            await asyncio.sleep(delay)
-            delay *= 2
-    return {"status": "ok"}
+    status, payload = await ats_sync_impl(req)
+    return JSONResponse(payload, status_code=status)

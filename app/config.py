@@ -11,6 +11,9 @@ class Settings:
     WS_BASE_URL: str = os.environ.get("WS_BASE_URL", "ws://localhost:8080")
     VLLM_BASE_URL: str | None = os.environ.get("VLLM_BASE_URL")
     ALLOW_RUBRIC_MOCK: int = int(os.environ.get("ALLOW_RUBRIC_MOCK", "1"))
+    ALLOW_DM_MOCK: int = int(os.environ.get("ALLOW_DM_MOCK", "1"))
+    ATS_MODE: str = os.environ.get("ATS_MODE", "mock")
+    MOCK_ATS_URL: str | None = os.environ.get("MOCK_ATS_URL")
 
 
 settings = Settings()

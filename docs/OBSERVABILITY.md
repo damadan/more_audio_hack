@@ -5,13 +5,17 @@
 | Метрика | Описание |
 |---------|----------|
 | `http_requests_total{method,endpoint,http_status}` | количество HTTP‑запросов |
-| `request_latency_seconds{method,endpoint}` | латентность HTTP |
-| `asr_partial_latency` | задержка получения частичных гипотез |
-| `asr_final_latency` | задержка финальных гипотез |
+| `http_request_latency_seconds{method,endpoint}` | латентность HTTP |
+| `asr_partial_latency_seconds` | задержка получения частичных гипотез |
+| `asr_final_latency_seconds` | задержка финальных гипотез |
+| `llm_latency_seconds` | время ответа LLM |
+| `dm_latency_seconds{mode}` | задержка обработчика диалога |
+| `tts_ttf_seconds{engine,mode}` | time‑to‑first audio |
+| `tts_bytes_total{engine,mode}` | объём отданного аудио |
 | `score_overall_hist` | гистограмма финальных оценок |
-| `llm_latency` | время ответа LLM |
 
-Метрики доступны по `GET /metrics`.
+Метрики доступны по `GET /metrics`. Для просмотра p95 используйте запросы в
+Prometheus или `histogram_quantile` в Grafana.
 
 ## Логи
 
