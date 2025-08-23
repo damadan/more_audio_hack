@@ -80,6 +80,29 @@ class Coverage(BaseModel):
     per_competency: dict[str, float]
 
 
+class DMTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str
+
+
+class DMContext(BaseModel):
+    turns: list[DMTurn]
+
+
+class DMRequest(BaseModel):
+    jd: JD
+    context: DMContext
+    coverage: Coverage | None = None
+
+
+class NextAction(BaseModel):
+    action: Literal["ask", "end"]
+    question: str | None = None
+    followups: list[str] = Field(default_factory=list)
+    target_skill: str | None = None
+    reason: str
+
+
 class RubricEvidence(BaseModel):
     quote: str
     t0: float
@@ -122,8 +145,12 @@ __all__ = [
     "IEEvidence",
     "IESkill",
     "IEProject",
-    "IE",
+    "IE", 
     "Coverage",
+    "DMTurn",
+    "DMContext",
+    "DMRequest",
+    "NextAction",
     "RubricEvidence",
     "Rubric",
     "CompScore",

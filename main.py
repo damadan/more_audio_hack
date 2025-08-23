@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 import json
@@ -7,7 +7,17 @@ import time
 import uuid
 from pathlib import Path
 
-from app.schemas import ASRChunk, TTSRequest
+from pydantic import TypeAdapter, ValidationError
+
+from app.llm_client import LLMClient
+from app.schemas import (
+    ASRChunk,
+    TTSRequest,
+    DMRequest,
+    NextAction,
+    JD,
+    DMTurn,
+)
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 
 app = FastAPI()
@@ -28,6 +38,21 @@ logger.setLevel(logging.INFO)
 _handler = logging.FileHandler(log_dir / "stream.log")
 _handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_handler)
+
+DM_JSON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"enum": ["ask", "end"]},
+        "question": {"type": "string"},
+        "followups": {"type": "array", "items": {"type": "string"}},
+        "target_skill": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["action", "reason"],
+    "additionalProperties": False,
+}
+
+NextActionAdapter = TypeAdapter(NextAction)
 
 
 @app.get("/healthz")
@@ -130,9 +155,28 @@ async def tts(req: TTSRequest):
     return StreamingResponse(stream_bytes(data), media_type=media_type)
 
 
+def build_prompt(jd: JD, turns: list[DMTurn]) -> str:
+    system = (
+        "You are conducting an interview.\n"
+        "Goal: assess candidate for the role based on the job description.\n"
+        "Style: concise, professional, helpful.\n"
+        "Restrictions: DO NOT collect or request personally identifiable information.\n"
+        "Output: JSON with keys {action, question, followups, target_skill, reason}."
+    )
+    jd_context = f"Job Description:\n{jd.model_dump_json(indent=2)}\n"
+    history = "\n".join(f"{t.role.capitalize()}: {t.text}" for t in turns)
+    return f"{system}\n\n{jd_context}\nConversation so far:\n{history}\n"
+
+
 @app.post("/dm/next")
-async def dm_next():
-    return {"result": "stub"}
+async def dm_next(req: DMRequest) -> NextAction:
+    prompt = build_prompt(req.jd, req.context.turns)
+    client = LLMClient.from_env()
+    raw = client.generate_json(prompt=prompt, json_schema=DM_JSON_SCHEMA)
+    try:
+        return NextActionAdapter.validate_python(raw)
+    except ValidationError as exc:  # pragma: no cover - should rarely happen
+        raise HTTPException(status_code=500, detail=f"LLM JSON invalid: {exc}")
 
 
 @app.post("/ie/extract")
