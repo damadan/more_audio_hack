@@ -8,10 +8,8 @@ from typing import Any, Dict
 import requests
 from jsonschema import validate
 import time
-from prometheus_client import Histogram
 
-
-LLM_LATENCY = Histogram("llm_latency", "LLM latency")
+from .obs import LLM_LATENCY
 
 
 class LLMClient:

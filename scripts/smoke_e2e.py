@@ -36,21 +36,29 @@ def main() -> int:
         transcript = " ".join(json.loads(line)["text"] for line in f)
 
     mock = _should_mock()
-    print("Running mode:", "MOCK" if mock else "REAL")
+    print("SMOKE MODE:", "MOCK" if mock else "REAL")
 
     def post(path: str, payload: dict, headers: dict | None = None):
         resp = requests.post(f"{BASE}{path}", json=payload, timeout=30, headers=headers)
         resp.raise_for_status()
-        return resp.json()
+        if resp.content:
+            try:
+                return resp.json()
+            except Exception:
+                return {}
+        return {}
 
     ie = post("/ie/extract", {"transcript": transcript, "include_timestamps": False})
     coverage = post("/match/coverage", {"jd": jd, "transcript": transcript})
 
-    rubric_path = "/rubric/score"
     headers = {}
+    dm_path = "/dm/next"
+    rubric_path = "/rubric/score"
     if mock:
+        dm_path += "?mock=1"
         rubric_path += "?mock=1"
         headers["X-Mock"] = "1"
+    dm_resp = post(dm_path, {"jd": jd, "context": {"turns": [{"role": "user", "text": "hi"}]}, "coverage": coverage}, headers=headers)
     rubric = post(rubric_path, {"jd": jd, "transcript": ie, "coverage": coverage}, headers=headers)
 
     final = post("/score/final", {"jd": jd, "ie": ie, "coverage": coverage, "rubric": rubric})
@@ -67,6 +75,16 @@ def main() -> int:
     )
     report_resp.raise_for_status()
     report = report_resp.text
+
+    ats_payload = {
+        "candidate_id": "cand",
+        "vacancy_id": "vac",
+        "decision": final.get("decision", "move"),
+        "report_link": "http://example.com",
+    }
+    ats_resp = post("/ats/sync", ats_payload)
+    if os.environ.get("ATS_MODE", "mock") == "mock":
+        assert ats_resp.get("status") == "mock-accepted"
 
     print("overall:", final.get("overall"))
     print("decision:", final.get("decision"))
