@@ -1,30 +1,16 @@
 # ASR и TTS
 
-## Поток ASR
+## ASR поток
+- WebSocket `/stream/{session_id}` принимает PCM 16 кГц.
+- `use_vad=1` включает `webrtcvad`; иначе используется простая эвристика по энергии.
+- Riva ASR (если настроен) включён с `enable_automatic_punctuation`, `enable_word_time_offsets`, `speech_contexts`.
+- Конец фразы: тишина ≥400 мс или текстовое сообщение `END`.
+- Ответы в формате `ASRChunk` (`partial` каждые ~250 мс, `final` после окончания).
+- При отсутствии Riva используется встроенный стек без распознавания слов (**TODO: интеграция VAD/AEC**).
 
-- WebSocket `/stream/{session_id}` принимает бинарные фреймы PCM 16 кГц.
-- Опциональный параметр `use_vad` включает `webrtcvad`.
-- Конец фразы определяется по тишине ≥ 400 мс или по сообщению `END`.
-- Riva ASR (если настроен) запускается с опциями:
-  - `enable_automatic_punctuation=True`
-  - `enable_word_time_offsets=True`
-  - `speech_contexts` с hotwords
-- Ответы имеют форму `ASRChunk` (`partial` каждые ~250 мс, `final` после
-  тишины).
-
-## Синтез речи
-
-- Основной движок — **XTTS‑v2** (`tts_models/multilingual/multi-dataset/xtts_v2`).
-- Fallback — **Silero RU** (`snakers4/silero-models`).
-- Форматы вывода: WAV (`audio/wav`) или сырые PCM (`audio/L16`).
-- Функция `synthesize` выбирает доступный движок, `stream_bytes` стримит
-  аудио небольшими чанками.
-- Поддерживается барж‑ин: клиент может прервать TTS и начать отправлять PCM.
-- Допустимы пользовательские голоса: XTTS принимает `speaker_wav`, Silero —
-  название голоса (`SILERO_VOICE`).
-
-## Параметры формата
-
-- Частота дискретизации: XTTS — до 24 кГц, Silero — 16 кГц
-- Каналы: моно, 16‑бит signed little‑endian
-
+## TTS
+- Функция `synthesize` пробует **XTTS‑v2**, затем **Silero**, затем возвращает синус (mock).
+- `stream_bytes` порционно отдаёт аудио и фиксирует метрики `tts_ttf_seconds` (time to first audio) и `tts_bytes_total`.
+- Форматы: WAV (`audio/wav`) или сырой PCM16 (`audio/L16`).
+- Поддерживается барж‑ин: клиент может начать отправлять PCM, не дожидаясь окончания TTS.
+- **TODO:** выбор движка через `TTS_ENGINE`, голос Silero через `SILERO_VOICE`.

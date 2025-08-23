@@ -1,40 +1,22 @@
 # Система оценивания
 
 ## Rubric scoring
+- `build_rubric_prompt` формирует запрос с JD, транскриптом/IE и Coverage.
+- `LLMClient.generate_json` (Qwen в JSON‑режиме) вызывается дважды; `merge_rubrics` объединяет результаты (self‑consistency ≥2).
+- Возвращаются `scores` (0‑5), `red_flags` и `evidence` с таймкодами.
+- Mock режим: `score_rubric_mock` выдаёт детерминированные баллы.
 
-- Промпт строится функцией `build_rubric_prompt` и включает JD,
-  транскрипт/IE и (опционально) Coverage.
-- Запрос выполняется дважды (`generate_json`), результаты валидируются и
-  объединяются `merge_rubrics` для устойчивости.
-- Возвращаются `scores` (0–5), `red_flags` и `evidence` с таймкодами.
-
-Пример промпта (сокр.):
-
+Пример фрагмента промпта:
 ```
 You are evaluating a candidate.
 Score each competency from 0 to 5...
 ```
 
 ## Финальный скоринг
-
-Функция `final_score` строит признаки `build_features` и предсказывает
-вероятность успеха:
-
-- `coverage_*` — покрытие компетенций
-- `rubric_*` — оценки рубрики
-- `years_*` — годы опыта
-- `count_metrics`, `count_numbers`, `contradictions`, `toxicity`, `ko_flags`
-- `asr_conf`, `title_canonical`
-
-Если присутствует модель `models/catboost.cbm` и `calibrator.pkl`, используется
-CatBoost. Иначе применяется простая логистическая регрессия по средним
-`coverage` и `rubric`.
-
-Пороговые значения:
-
-- `prob > 0.8` → `move`
-- `prob > 0.6` → `discuss`
-- иначе → `reject`
-
-`SCORE_OVERALL_HIST` фиксирует распределение итоговых оценок.
-
+- `build_features` собирает признаки: `coverage_*`, `rubric_*`, `years_*`, `count_metrics`, `count_numbers`, `contradictions`, `toxicity`, `ko_flags`, `asr_conf`, `title_canonical`.
+- `_predict_probability` использует CatBoost (`models/catboost.cbm` + `calibrator.pkl`) при наличии, иначе простую логистическую регрессию.
+- Пороги решения:
+  - `prob > 0.8` → `move`
+  - `0.6 < prob ≤ 0.8` → `discuss`
+  - иначе `reject`
+- Гистограмма `score_overall_hist` фиксирует распределение итоговых баллов.

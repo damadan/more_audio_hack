@@ -1,15 +1,6 @@
 # Запуск в Docker
 
-## Требования
-
-- Docker 20+
-- docker-compose 2+
-- Для vLLM/XTTS рекомендуется GPU (NVIDIA, поддержка `--gpus all`).
-
-## docker-compose
-
-В репозитории есть пример `docker-compose.yaml`:
-
+## docker-compose.yaml
 ```yaml
 version: '3'
 services:
@@ -18,33 +9,37 @@ services:
     ports:
       - "8080:8080"
     env_file: .env
-    command: uvicorn main:app --host 0.0.0.0 --port 8080
+    command: uvicorn main:app --host 0.0.0.0 --port ${APP_PORT:-8080}
     volumes:
       - ./data:/app/data
       - faiss-index:/app/index
+  vllm:
+    image: vllm/vllm-openai:latest
+    profiles: ["real"]
+    ports:
+      - "8000:8000"
+    command: python -m vllm.entrypoints.openai.api_server --model Qwen/Qwen2.5-14B-Instruct --port 8000
+    healthcheck:
+      test: ["CMD","curl","-f","http://localhost:8000/v1/models"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
 volumes:
   faiss-index:
 ```
 
 ## Запуск
-
 ```bash
-docker compose up -d
-docker compose logs -f app
+docker compose up -d    # профиль real подтянет сервис vllm
 ```
+Сервис доступен на `http://localhost:8080`.
 
-Сервис будет доступен на `http://localhost:8080`.
-
-Остановка:
-
+## Остановка
 ```bash
 docker compose down
 ```
 
-## Типичные проблемы
-
-- Отсутствие GPU ⇒ vLLM/XTTS работают медленно; используйте CPU или
-  уменьшите модель.
-- Ошибка подключения к vLLM ⇒ проверьте `VLLM_BASE_URL` внутри контейнера.
-- Недоступен Riva ⇒ убедитесь, что `RIVA_HOST` доступен из контейнера.
-
+## Примечания
+- `.env` автоматически монтируется в контейнер `app`.
+- Том `faiss-index` хранит FAISS индекс и кэш эмбеддингов.
+- Для real режима задайте `VLLM_BASE_URL=http://vllm:8000` и `ATS_MODE=real` в `.env`.
