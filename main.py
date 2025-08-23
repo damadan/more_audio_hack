@@ -32,11 +32,18 @@ from app.schemas import (
     RubricScoreRequest,
     Rubric,
     Coverage,
+    CoverageRequest,
     RubricEvidence,
     FinalScoreRequest,
     FinalScore,
     ReportRequest,
     ATSSyncRequest,
+)
+from app.dialog_manager import build_prompt as dm_build_prompt
+from app.match import (
+    build_indicator_index,
+    match_spans,
+    compute_coverage,
 )
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
@@ -237,17 +244,6 @@ async def tts(req: TTSRequest):
     return StreamingResponse(stream_bytes(data), media_type=media_type)
 
 
-def build_prompt(jd: JD, turns: list[DMTurn]) -> str:
-    system = (
-        "You are conducting an interview.\n"
-        "Goal: assess candidate for the role based on the job description.\n"
-        "Style: concise, professional, helpful.\n"
-        "Restrictions: DO NOT collect or request personally identifiable information.\n"
-        "Output: JSON with keys {action, question, followups, target_skill, reason}."
-    )
-    jd_context = f"Job Description:\n{jd.model_dump_json(indent=2)}\n"
-    history = "\n".join(f"{t.role.capitalize()}: {t.text}" for t in turns)
-    return f"{system}\n\n{jd_context}\nConversation so far:\n{history}\n"
 
 
 def build_rubric_prompt(jd: JD, transcript: str | IE, coverage: Coverage | None) -> str:
@@ -296,7 +292,7 @@ def merge_rubrics(*rubrics: Rubric) -> Rubric:
 
 @app.post("/dm/next")
 async def dm_next(req: DMRequest) -> NextAction:
-    prompt = build_prompt(req.jd, req.context.turns)
+    prompt = dm_build_prompt(req.jd, req.context.turns, req.coverage)
     client = LLMClient.from_env()
     raw = client.generate_json(prompt=prompt, json_schema=DM_JSON_SCHEMA)
     try:
@@ -319,8 +315,11 @@ async def ie_extract(req: IEExtractRequest) -> IE:
 
 
 @app.post("/match/coverage")
-async def match_coverage():
-    return {"result": "stub"}
+async def match_coverage(req: CoverageRequest) -> Coverage:
+    backend = os.environ.get("HR_EMB_BACKEND", "BGE_M3")
+    index, meta = build_indicator_index(req.jd, backend)
+    matches = match_spans(req.transcript, index, meta, backend, top_k=3)
+    return compute_coverage(matches, meta)
 
 
 @app.post("/rubric/score")

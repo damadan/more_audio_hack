@@ -87,6 +87,11 @@ class Coverage(BaseModel):
     per_competency: dict[str, float]
 
 
+class CoverageRequest(BaseModel):
+    jd: JD
+    transcript: str
+
+
 class RubricScoreRequest(BaseModel):
     jd: JD
     transcript: str | IE
@@ -188,6 +193,7 @@ __all__ = [
     "IE",
     "IEExtractRequest",
     "Coverage",
+    "CoverageRequest",
     "RubricScoreRequest",
     "DMTurn",
     "DMContext",

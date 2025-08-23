@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.llm_client import LLMClient
 
 
-def test_generate_json_pydantic_validation(monkeypatch):
+def test_generate_json_strict_retries(monkeypatch):
     monkeypatch.setenv("VLLM_BASE_URL", "http://mock")
     monkeypatch.setenv("VLLM_MODEL", "test-model")
 
@@ -26,14 +26,16 @@ def test_generate_json_pydantic_validation(monkeypatch):
     class Result(BaseModel):
         value: int
 
-    mock_resp = Mock()
-    mock_resp.json.return_value = {
-        "choices": [{"message": {"content": '{"value": 1}'}}]
-    }
-    mock_resp.raise_for_status.return_value = None
+    bad = Mock()
+    bad.json.return_value = {"choices": [{"message": {"content": "oops {\"value\":1}"}}]}
+    bad.raise_for_status.return_value = None
 
-    with patch("app.llm_client.requests.post", return_value=mock_resp) as mpost:
+    good = Mock()
+    good.json.return_value = {"choices": [{"message": {"content": '{"value":1}'}}]}
+    good.raise_for_status.return_value = None
+
+    with patch("app.llm_client.requests.post", side_effect=[bad, good]) as mpost:
         data = client.generate_json("prompt", schema)
 
     Result(**data)
-    assert mpost.called
+    assert mpost.call_count == 2
