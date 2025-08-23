@@ -6,3 +6,6 @@ httpx
 jsonschema
 faiss-cpu
 jinja2
+prometheus-client
+uvicorn
+flake8

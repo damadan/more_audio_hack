@@ -7,6 +7,14 @@
 ## Запуск
 
 ```bash
-pip install fastapi uvicorn
+pip install -r requirements.txt
 uvicorn main:app --reload
+```
+
+## Smoke test
+
+После запуска сервиса можно проверить его доступность:
+
+```bash
+curl -sS localhost:8000/healthz
 ```

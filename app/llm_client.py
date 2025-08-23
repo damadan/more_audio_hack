@@ -6,6 +6,11 @@ from typing import Any, Dict
 
 import requests
 from jsonschema import validate
+import time
+from prometheus_client import Histogram
+
+
+LLM_LATENCY = Histogram("llm_latency", "LLM latency")
 
 
 class LLMClient:
@@ -55,8 +60,10 @@ class LLMClient:
         }
 
         for _ in range(2):
+            start = time.time()
             resp = requests.post(url, headers=headers, json=payload, timeout=30)
             resp.raise_for_status()
+            LLM_LATENCY.observe(time.time() - start)
             content = resp.json()["choices"][0]["message"]["content"]
             try:
                 data = json.loads(content)
