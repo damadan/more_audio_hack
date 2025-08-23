@@ -1,61 +1,47 @@
 # Архитектура
 
 ## Компоненты
-
-- **Клиент (WebRTC)** — отправляет 16‑кГц PCM аудио и получает TTS.
-- **ASR** — приоритетно NVIDIA Riva, есть заглушка на WebSocket
-  [`/stream/{session_id}`](API.md#ws-streamsession_id).
-- **Pre‑proc/VAD** — опциональный `webrtcvad`, фильтрация тишины и барж‑ин.
-- **Dialog Manager** — LLM Qwen через vLLM, промпты в
-  [`app/dialog_manager.py`](../app/dialog_manager.py).
-- **IE/NER** — `extract_ie` использует ESCOXLM‑R и LLM JSON‑экстракцию
-  [`app/ie.py`](../app/ie.py).
-- **JD‑matching** — эмбеддинги (`BGE_M3`/`conSultantBERT`/`TAROT`) + FAISS
-  [`app/match.py`](../app/match.py).
-- **Rubric Scorer** — LLM, объединение двух прогонов
-  [`/rubric/score`](API.md#post-rubricscore).
-- **Final Scorer** — CatBoost/логистическая регрессия
-  [`app/scoring.py`](../app/scoring.py).
-- **Report/ATS** — HTML/PDF отчёт и синхронизация с ATS.
-- **Observability** — Prometheus‑метрики, JSON‑логи с PII‑маскированием.
+- **Клиент** — отправляет PCM‑поток и принимает TTS.
+- **ASR** — `/stream/{session_id}` обрабатывает аудио (Riva либо встроенный эвристический VAD).
+- **DM/LLM** — строит следующий вопрос по JD и истории (`app/dialog_manager.py`).
+- **IE/Matching** — извлекает навыки и проекты (`app/ie.py`) и сравнивает их с JD через FAISS (`app/match.py`).
+- **Rubric** — оценивает компетенции с помощью LLM (`/rubric/score`).
+- **Scorer** — агрегирует покрытие и рубрику в итоговый балл (`app/scoring.py`).
+- **Report/ATS** — формирует HTML/PDF отчёт и синхронизирует решение с ATS.
+- **Observability** — Prometheus‑метрики, JSON‑логи.
 
 ## Диаграммы
 
-### Общие компоненты
-
+### Компонентная
 ```mermaid
-graph TD
-    Client -->|PCM| ASR
-    ASR --> DM
-    DM -->|question| Client
-    DM --> IE
-    IE --> Matching
-    Matching --> Rubric
-    Rubric --> Scorer
-    Scorer --> Report
-    Scorer --> ATS
-    DM --> TTS
-    TTS -->|audio| Client
+graph LR
+    client((Client)) <--> asr[ASR]
+    asr --> dm[DM/LLM]
+    dm --> ie[IE/Matching]
+    ie --> rubric[Rubric]
+    rubric --> scorer[Scorer]
+    scorer --> report[Report]
+    scorer --> ats[ATS]
+    dm --> tts[TTS]
+    tts --> client
 ```
 
-### Последовательность «вопрос→ответ»
-
+### Последовательность вопрос→ответ
 ```mermaid
 sequenceDiagram
     participant C as Client
-    participant T as TTS
     participant A as ASR
-    participant L as LLM
+    participant D as DM/LLM
+    participant T as TTS
+    C->>A: PCM 16 kHz
+    A-->>C: ASRChunk partial/final
+    C->>D: /dm/next
+    D-->>C: Next question
     C->>T: /tts
     T-->>C: WAV/PCM
-    C->>A: PCM stream
-    A-->>C: partial/final text
-    C->>L: /dm/next
-    L-->>C: next question
 ```
 
-### Поток данных IE → Report
-
+### Поток данных IE→Report
 ```mermaid
 flowchart LR
     IE[IE/NER] --> Cov[Coverage]
@@ -64,10 +50,8 @@ flowchart LR
     Score --> Report
 ```
 
-## Целевые SLO
-
-- Частичные ответы ASR p95 ≤ 400 мс
-- Финальные ответы ASR p95 ≤ 900 мс
+## SLO
+- ASR partial p95 ≤ 400 мс
+- ASR final p95 ≤ 900 мс
 - TTF‑audio ≤ 300–400 мс
-- WER (ru) ≤ 7–8 %
-
+- WER RU ≤ 7–8 %

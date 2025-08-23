@@ -1,105 +1,76 @@
 # AI Interview Assistant
 
-AI Interview Assistant проводит техническое собеседование и автоматически
-оценяет ответы кандидата. Сервис принимает аудиопоток, расшифровывает речь,
-управляет диалогом через LLM, извлекает навыки и проекты, сопоставляет их с
-вакансией, выставляет оценки по рубрике и возвращает итоговый отчёт.
+AI Interview Assistant проводит техническое собеседование и автоматически оценивает ответы кандидата. Сервис принимает аудиопоток, расшифровывает речь в реальном времени, управляет диалогом через LLM, извлекает навыки и опыт, сопоставляет их с вакансией, оценивает по рубрике и возвращает итоговый отчёт и решение.
 
-## Архитектура на пальцах
+## Архитектура
 
 ```mermaid
 graph LR
-    A[Клиент / WebRTC] -->|PCM 16 kHz| B(ASR / Riva)
-    B --> C(Dialog Manager / Qwen)
-    C --> D(TTS)
-    C --> E(IE & Matching)
-    E --> F(Rubric / Qwen)
-    F --> G(Final Scoring / CatBoost)
-    G --> H(Report)
+    client((Client)) <--> asr[ASR]
+    asr --> dm[DM/LLM]
+    dm --> ie[IE/Matching]
+    ie --> rubric[Rubric]
+    rubric --> scorer[Scorer]
+    scorer --> report[Report]
+    scorer --> ats[ATS]
+    dm --> tts[TTS]
+    tts --> client
 ```
 
-## Быстрый старт
+## Quickstart
 
-### 1) MOCK‑режим (без vLLM/ATS)
-
-1. Подготовьте окружение и запустите сервис (ATS и LLM будут замоканы):
+### MOCK режим
+1. Установите зависимости и запустите сервис (LLM и ATS будут замоканы):
    ```bash
-   cp .env.example .env
+   pip install -r requirements.txt
    uvicorn main:app --host 0.0.0.0 --port 8080
    ```
-2. Прогоните smoke‑тест:
+2. Прогоните e2e smoke:
    ```bash
    python scripts/smoke_e2e.py
    ```
-   Скрипт автоматически добавит `?mock=1` и `X-Mock: 1` для `/dm/next` и `/rubric/score`.
-   `/ats/sync` вернёт `202 {"status":"mock-accepted"}` без внешних вызовов.
+   Скрипт сам добавит `?mock=1` и `X-Mock: 1` для `/dm/next` и `/rubric/score`. `ATS_MODE` по умолчанию `mock`, поэтому `/ats/sync` вернёт `202 {"status":"mock-accepted"}`.
+3. Ожидаемый вывод:
+   ```
+   overall: <float>
+   decision: <move|discuss|reject>
+   report length: <int>
+   ```
 
-### 2) REAL‑режим (с vLLM и ATS)
-
-1. Запустите vLLM с моделью Qwen‑2.5‑14B‑Instruct:
+### REAL режим
+1. Запустите vLLM с Qwen‑2.5‑14B‑Instruct на порту 8000:
    ```bash
    python -m vllm.entrypoints.openai.api_server \
        --model Qwen/Qwen2.5-14B-Instruct --host 0.0.0.0 --port 8000
    ```
-2. Установите переменные окружения `ATS_MODE=real` и `MOCK_ATS_URL=<endpoint>`.
-3. Запустите сервис (`make run` или `docker compose up -d`).
-4. Выполните `python scripts/smoke_e2e.py` — тест пойдёт в REAL‑режиме.
+2. Установите переменные окружения и запустите сервис:
+   ```bash
+   ATS_MODE=real MOCK_ATS_URL=http://ats.example uvicorn main:app --host 0.0.0.0 --port 8080
+   ```
+3. Выполните `python scripts/smoke_e2e.py` без флагов — mock не будет использован, если `VLLM_BASE_URL` доступен.
 
-Пример запроса к `/interview/start`:
-
+## Пример `/interview/start`
 ```bash
 curl -s -X POST http://localhost:8080/interview/start
-# {"session_id": "...", "ws_url": "ws://localhost:8080/stream/..."}
+# {"session_id":"...","ws_url":"ws://localhost:8080/stream/..."}
 ```
+`ws_url` формируется из `WS_BASE_URL` или из заголовков `X-Forwarded-Proto/Host` при работе за прокси.
 
-Пример запроса к `/dm/next` в MOCK‑режиме:
-
-```bash
-curl -s -X POST 'http://localhost:8080/dm/next?mock=1' \
-  -H 'X-Mock: 1' \
-  -d '{"jd":{"role":"dev","lang":"en","competencies":[{"name":"ops","weight":1.0,"indicators":[{"name":"monitoring"}]}],"knockouts":[]},"context":{"turns":[{"role":"user","text":"hi"}]},"coverage":{"per_indicator":{"monitoring":0.0},"per_competency":{"ops":0.0}}}'
-```
-
-`ws_url` берётся из `WS_BASE_URL` или собирается из заголовков
-`X-Forwarded-Proto/Host` при работе за прокси.
-
-## Smoke‑тест
-
-Скрипт `scripts/smoke_e2e.py` вызывает `/ie/extract → /match/coverage →
-/dm/next → /rubric/score → /score/final → /report → /ats/sync` и печатает:
-
-```
-overall: 0.73
-decision: move
-report length: 12345
-```
-
-## Ссылки на документацию
-
+## Документация
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [docs/API.md](docs/API.md)
 - [docs/SCHEMAS.md](docs/SCHEMAS.md)
 - [docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md)
 - [docs/SETUP_DOCKER.md](docs/SETUP_DOCKER.md)
 - [docs/ENV_VARS.md](docs/ENV_VARS.md)
-- Остальные документы см. в каталоге `docs/`.
 
-## Troubleshooting
+## Troubleshooting (кратко)
+- Нет vLLM → включите mock (`?mock=1`, `X-Mock: 1`) или запустите vLLM.
+- Нет `MOCK_ATS_URL` при `ATS_MODE=real` → `/ats/sync` вернёт 502.
+- Некорректный `ws_url` → проверьте `WS_BASE_URL` и `APP_PORT`.
+- Нет весов TTS/FAISS → используйте `scripts/bootstrap_models.py` или будет синус‑фолбэк.
 
-- `/dm/next` или `/rubric/score` возвращают 500 без запущенного vLLM → включите
-  mock‑режим (`?mock=1` и `X-Mock: 1`) или запустите vLLM.
-- `/ats/sync` 500 без настроек → по умолчанию `ATS_MODE=mock`, убедитесь, что
-  не выставили `ATS_MODE=real` без `MOCK_ATS_URL`.
-- Отсутствие зависимостей приводит к ошибкам при запуске тестов — установите
-  пакеты из `requirements.txt`.
-- Для работы TTS необходимы веса XTTS‑v2 или Silero; при их отсутствии будет
-  сгенерирован синусоидальный звук.
-
-## Known Issues
-
-- В репозитории отсутствуют реальные веса моделей (vLLM, XTTS‑v2, FAISS
-  индексы). Используйте `scripts/bootstrap_models.py` для загрузки и затем
-  запустите сервис.
-- Поддержка Riva ASR и генерации PDF отчёта требует дополнительных
-  зависимостей.
-
+## Known Issues (кратко)
+- Весов моделей (vLLM, XTTS, FAISS) нет в репозитории — загрузите отдельно.
+- PDF отчёт и Riva ASR требуют дополнительных зависимостей.
+- SLO собраны на тестовых данных; под нагрузкой значения могут отличаться.
