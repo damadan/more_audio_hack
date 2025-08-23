@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.rubric import router as rubric_router
 
 app = FastAPI()
 
@@ -82,9 +83,8 @@ async def match_coverage() -> Coverage:
     return Coverage(per_indicator={}, per_competency={})
 
 
-@app.post("/rubric/score")
-async def rubric_score() -> Rubric:
-    return Rubric(scores={}, red_flags=[], evidence=[])
+# Rubric scoring endpoints
+app.include_router(rubric_router)
 
 
 @app.post("/score/final")
