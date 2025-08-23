@@ -1,12 +1,9 @@
-import io
-import math
 import uuid
-import wave
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, Response
 
 from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.tts_local import router as tts_router
 
 app = FastAPI()
 
@@ -18,6 +15,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(tts_router)
 
 
 @app.get("/healthz")
@@ -46,25 +45,6 @@ async def stream_ws(websocket: WebSocket, session_id: str):
         pass
     finally:
         await websocket.close()
-
-
-@app.post("/tts")
-async def tts_stub():
-    sample_rate = 16_000
-    duration = 1.0
-    freq = 440.0
-    n_samples = int(sample_rate * duration)
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        for i in range(n_samples):
-            value = int(32767 * math.sin(2 * math.pi * freq * i / sample_rate))
-            wf.writeframesraw(value.to_bytes(2, byteorder="little", signed=True))
-    audio_bytes = buffer.getvalue()
-    headers = {"Content-Type": "audio/wav"}
-    return Response(content=audio_bytes, media_type="audio/wav", headers=headers)
 
 
 @app.post("/dm/next")
