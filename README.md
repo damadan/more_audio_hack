@@ -1,78 +1,78 @@
 # AI Interview Assistant
 
-Минимально жизнеспособный прототип сервиса, помогающего проводить и
-оценивать технические интервью.  Реализованы ключевые API-эндпоинты и
-несколько лёгких моделей, что позволяет запускать систему локально или в
-docker.
+AI Interview Assistant проводит техническое собеседование и автоматически
+оценяет ответы кандидата. Сервис принимает аудиопоток, расшифровывает речь,
+управляет диалогом через LLM, извлекает навыки и проекты, сопоставляет их с
+вакансией, выставляет оценки по рубрике и возвращает итоговый отчёт.
 
-## Требования
-- Python 3.10+
-- FFmpeg для синтеза речи
-- GPU (необязательно)
+## Архитектура на пальцах
 
-## Установка
-```bash
-pip install -r requirements.txt
+```mermaid
+graph LR
+    A[Клиент / WebRTC] -->|PCM 16 kHz| B(ASR / Riva)
+    B --> C(Dialog Manager / Qwen)
+    C --> D(TTS)
+    C --> E(IE & Matching)
+    E --> F(Rubric / Qwen)
+    F --> G(Final Scoring / CatBoost)
+    G --> H(Report)
 ```
 
-## Переменные окружения
-Создайте файл `.env` и заполните значения:
-```
-VLLM_BASE_URL=http://localhost:8000/v1
-VLLM_MODEL=Qwen/Qwen2.5-14B-Instruct
-VLLM_API_KEY=dummy
-RIVA_HOST=localhost:50051   # или пусто для заглушки
-USE_XTTS=1
-SILERO_VOICE=aidar
-HR_EMB_BACKEND=BGE_M3   # CONSULTANTBERT|TAROT|BGE_M3
-MOCK_ATS_URL=http://localhost:9999/ats
-```
+## Быстрый старт
 
-## Запуск локального vLLM
-```bash
-pip install vllm
-python -m vllm.entrypoints.openai.api_server \
-    --model Qwen/Qwen2.5-14B-Instruct --max-model-len 8192
-```
+1. Подготовьте файл окружения:
+   ```bash
+   cp .env.example .env  # отредактируйте при необходимости
+   ```
+2. Запустите локальный vLLM с моделью Qwen‑2.5‑14B‑Instruct:
+   ```bash
+   python -m vllm.entrypoints.openai.api_server \
+       --model Qwen/Qwen2.5-14B-Instruct --host 0.0.0.0 --port 8000
+   ```
+3. Старт сервиса:
+   ```bash
+   make run           # или docker compose up -d
+   ```
 
-## Docker Compose
-Пример `docker-compose.yaml` уже включён в репозиторий.  Он поднимает
-сервис `app` на порту `8080` и монтирует каталог `data/` вместе с томом
-для FAISS-индекса.
+## Smoke‑тест
 
-Запуск:
-```bash
-docker compose up -d
-```
+После запуска сервиса выполните:
 
-## Makefile команды
-- `make run` – старт сервиса на `http://0.0.0.0:8080`
-- `make test` – запустить тесты
-- `python scripts/smoke_e2e.py` – сквозной прогон API
-
-## Эндпоинты
-- `GET /healthz` – проверка работоспособности
-- `POST /ie/extract` – извлечение сущностей из транскрипта
-- `POST /match/coverage` – покрытие JD индикаторами
-- `POST /rubric/score` – оценка по рубрике
-- `POST /score/final` – финальный скоринг
-- `POST /report` – HTML отчёт
-
-Пример запроса:
-```bash
-curl -X POST http://localhost:8080/ie/extract \
-  -H 'Content-Type: application/json' \
-  -d '{"transcript":"Мы используем Docker"}'
-```
-
-## Тестовые данные
-- `data/jd_ml_engineer.json` – пример JD
-- `data/transcripts/ru_sample.jsonl` – фрагменты диалога
-
-## Smoke тест
-После запуска сервиса можно выполнить:
 ```bash
 python scripts/smoke_e2e.py
 ```
-Он последовательно вызывает основные эндпоинты и печатает итоговый
-скоринг.
+
+Скрипт последовательно вызывает `/ie/extract → /match/coverage → /rubric/score →
+/score/final → /report` и выводит:
+
+```
+overall: 0.73
+decision: move
+report length: 12345
+```
+
+## Ссылки на документацию
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- [docs/API.md](docs/API.md)
+- [docs/SCHEMAS.md](docs/SCHEMAS.md)
+- [docs/SETUP_LOCAL.md](docs/SETUP_LOCAL.md)
+- [docs/SETUP_DOCKER.md](docs/SETUP_DOCKER.md)
+- [docs/ENV_VARS.md](docs/ENV_VARS.md)
+- Остальные документы см. в каталоге `docs/`.
+
+## Troubleshooting
+
+- Проверьте, что запущен vLLM и доступен `VLLM_BASE_URL`.
+- Отсутствие зависимостей приводит к ошибкам при запуске тестов — установите
+  пакеты из `requirements.txt`.
+- Для работы TTS необходимы веса XTTS‑v2 или Silero; при их отсутствии будет
+  сгенерирован синусоидальный звук.
+
+## Known Issues
+
+- В репозитории отсутствуют реальные веса моделей (vLLM, XTTS‑v2, FAISS
+  индексы). Их нужно загрузить отдельно.
+- Поддержка Riva ASR и генерации PDF отчёта требует дополнительных
+  зависимостей.
+
