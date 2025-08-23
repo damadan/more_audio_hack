@@ -1,18 +1,14 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-import asyncio
-import io
 import json
 import logging
-import math
-import struct
 import time
 import uuid
-import wave
 from pathlib import Path
 
-from app.schemas import ASRChunk
+from app.schemas import ASRChunk, TTSRequest
+from app.tts import pcm_to_wav, stream_bytes, synthesize
 
 app = FastAPI()
 
@@ -123,23 +119,15 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
 
 
 @app.post("/tts")
-async def tts():
-    sample_rate = 16000
-    duration = 1.0
-    frequency = 440.0
-    n_samples = int(sample_rate * duration)
-    amplitude = 32767
-
-    buffer = io.BytesIO()
-    with wave.open(buffer, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        for i in range(n_samples):
-            value = int(amplitude * math.sin(2 * math.pi * frequency * i / sample_rate))
-            wf.writeframes(struct.pack('<h', value))
-    buffer.seek(0)
-    return StreamingResponse(buffer, media_type="audio/wav")
+async def tts(req: TTSRequest):
+    pcm, sample_rate = synthesize(req.text, req.voice)
+    if req.format == "wav":
+        data = pcm_to_wav(pcm, sample_rate)
+        media_type = "audio/wav"
+    else:
+        data = pcm
+        media_type = "audio/L16"
+    return StreamingResponse(stream_bytes(data), media_type=media_type)
 
 
 @app.post("/dm/next")
