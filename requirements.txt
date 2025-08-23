@@ -1,3 +1,0 @@
-fastapi
-prometheus_client
-httpx
