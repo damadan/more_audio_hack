@@ -45,6 +45,12 @@ class ASRChunk(BaseModel):
     words: list[ASRWord] | None = None
 
 
+class TTSRequest(BaseModel):
+    text: str
+    voice: str | None = None
+    format: Literal["wav", "pcm16k"] = "wav"
+
+
 class IEEvidence(BaseModel):
     quote: str
     t0: float
@@ -112,6 +118,7 @@ __all__ = [
     "JD",
     "ASRWord",
     "ASRChunk",
+    "TTSRequest",
     "IEEvidence",
     "IESkill",
     "IEProject",
