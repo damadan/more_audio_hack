@@ -4,3 +4,4 @@ pydantic
 requests
 httpx
 jsonschema
+faiss-cpu
