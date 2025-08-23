@@ -19,6 +19,10 @@ from app.schemas import (
     DMTurn,
     IEExtractRequest,
     IE,
+    RubricScoreRequest,
+    Rubric,
+    Coverage,
+    RubricEvidence,
 )
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
@@ -56,6 +60,7 @@ DM_JSON_SCHEMA = {
 }
 
 NextActionAdapter = TypeAdapter(NextAction)
+RubricAdapter = TypeAdapter(Rubric)
 
 
 @app.get("/healthz")
@@ -171,6 +176,50 @@ def build_prompt(jd: JD, turns: list[DMTurn]) -> str:
     return f"{system}\n\n{jd_context}\nConversation so far:\n{history}\n"
 
 
+def build_rubric_prompt(jd: JD, transcript: str | IE, coverage: Coverage | None) -> str:
+    system = (
+        "You are evaluating a candidate.\n"
+        "Score each competency from 0 to 5 with the following anchors:\n"
+        "0: no evidence of skill\n"
+        "1: awareness only\n"
+        "2: limited experience\n"
+        "3: working proficiency\n"
+        "4: strong proficiency\n"
+        "5: expert mastery.\n"
+        "Return JSON with keys {scores, red_flags, evidence}.\n"
+        "Each evidence item must contain quote, t0, t1 and competency.\n"
+        "List any concerns in red_flags."
+    )
+    jd_context = f"Job Description:\n{jd.model_dump_json(indent=2)}\n"
+    if isinstance(transcript, IE):
+        interview_context = f"IE:\n{transcript.model_dump_json(indent=2)}\n"
+    else:
+        interview_context = f"Transcript:\n{transcript}\n"
+    coverage_context = (
+        f"Coverage:\n{coverage.model_dump_json(indent=2)}\n" if coverage else ""
+    )
+    return f"{system}\n\n{jd_context}{interview_context}{coverage_context}"
+
+
+def merge_rubrics(*rubrics: Rubric) -> Rubric:
+    scores: dict[str, list[int]] = {}
+    for r in rubrics:
+        for name, score in r.scores.items():
+            scores.setdefault(name, []).append(score)
+    merged_scores = {
+        name: round(sum(vals) / len(vals)) for name, vals in scores.items()
+    }
+    evidence_map: dict[tuple[str, float, float, str | None], RubricEvidence] = {}
+    for r in rubrics:
+        for ev in r.evidence:
+            key = (ev.quote, ev.t0, ev.t1, ev.competency)
+            evidence_map[key] = ev
+    red_flags = list({rf for r in rubrics for rf in r.red_flags})
+    return Rubric(
+        scores=merged_scores, evidence=list(evidence_map.values()), red_flags=red_flags
+    )
+
+
 @app.post("/dm/next")
 async def dm_next(req: DMRequest) -> NextAction:
     prompt = build_prompt(req.jd, req.context.turns)
@@ -201,8 +250,18 @@ async def match_coverage():
 
 
 @app.post("/rubric/score")
-async def rubric_score():
-    return {"result": "stub"}
+async def rubric_score(req: RubricScoreRequest) -> Rubric:
+    prompt = build_rubric_prompt(req.jd, req.transcript, req.coverage)
+    client = LLMClient.from_env()
+    schema = Rubric.model_json_schema()
+    raw1 = client.generate_json(prompt=prompt, json_schema=schema)
+    raw2 = client.generate_json(prompt=prompt, json_schema=schema)
+    try:
+        r1 = RubricAdapter.validate_python(raw1)
+        r2 = RubricAdapter.validate_python(raw2)
+    except ValidationError as exc:  # pragma: no cover - should rarely happen
+        raise HTTPException(status_code=500, detail=f"LLM JSON invalid: {exc}")
+    return merge_rubrics(r1, r2)
 
 
 @app.post("/score/final")
