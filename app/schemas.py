@@ -148,6 +148,14 @@ class FinalScore(BaseModel):
     by_comp: list[CompScore]
 
 
+class FinalScoreRequest(BaseModel):
+    jd: JD
+    ie: IE
+    coverage: Coverage | None = None
+    rubric: Rubric | None = None
+    aux: dict[str, object] = Field(default_factory=dict)
+
+
 __all__ = [
     "JDIndicator",
     "JDCompetency",
@@ -170,4 +178,5 @@ __all__ = [
     "Rubric",
     "CompScore",
     "FinalScore",
+    "FinalScoreRequest",
 ]

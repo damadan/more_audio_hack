@@ -23,9 +23,12 @@ from app.schemas import (
     Rubric,
     Coverage,
     RubricEvidence,
+    FinalScoreRequest,
+    FinalScore,
 )
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
+from app.scoring import final_score as compute_final_score
 
 app = FastAPI()
 
@@ -265,8 +268,8 @@ async def rubric_score(req: RubricScoreRequest) -> Rubric:
 
 
 @app.post("/score/final")
-async def score_final():
-    return {"result": "stub"}
+async def score_final(req: FinalScoreRequest) -> FinalScore:
+    return compute_final_score(req.jd, req.ie, req.coverage, req.rubric, req.aux)
 
 
 @app.post("/report")
