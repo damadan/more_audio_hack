@@ -18,11 +18,15 @@ def sample_request():
             "role": "dev",
             "lang": "en",
             "competencies": [
-                {"name": "skill1", "weight": 1.0, "indicators": [{"name": "ind1"}]}
+                {"name": "ops", "weight": 1.0, "indicators": [{"name": "monitoring"}]}
             ],
             "knockouts": [],
         },
         "context": {"turns": [{"role": "user", "text": "hi"}]},
+        "coverage": {
+            "per_indicator": {"monitoring": 0.0},
+            "per_competency": {"ops": 0.0},
+        },
     }
 
 
@@ -31,18 +35,21 @@ def test_dm_next_success(monkeypatch):
     monkeypatch.setenv("VLLM_MODEL", "test-model")
 
     def fake_generate_json(self, prompt, json_schema, temperature=0.2, max_tokens=1024):
+        assert "monitoring" in prompt
         return {
             "action": "ask",
-            "question": "What is your experience?",
-            "followups": ["Tell me more"],
-            "target_skill": "skill1",
-            "reason": "Need info",
+            "question": "Tell me about monitoring",
+            "followups": ["Any tools?"],
+            "target_skill": "monitoring",
+            "reason": "gap",
         }
 
     monkeypatch.setattr(LLMClient, "generate_json", fake_generate_json)
     resp = client.post("/dm/next", json=sample_request())
     assert resp.status_code == 200
-    assert resp.json()["action"] == "ask"
+    data = resp.json()
+    assert data["target_skill"] == "monitoring"
+    assert data["followups"]
 
 
 def test_dm_next_invalid_json(monkeypatch):

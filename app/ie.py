@@ -7,13 +7,15 @@ from app.llm_client import LLMClient
 
 
 DOCKER_RE = re.compile(r"\bdocker\b", re.IGNORECASE)
+GRAFANA_RE = re.compile(r"\bgrafana\b", re.IGNORECASE)
+METRIC_RE = re.compile(r"\b(auc|accuracy|f1)\s*(\d+(?:\.\d+)?)", re.I)
 
 
 def tag_esco(text: str) -> dict[str, list[str]]:
-    """Very small placeholder for ESCOXLM-R tagger.
+    """Tiny placeholder for ESCOXLM-R tagger.
 
-    Only recognises the word ``Docker`` to keep tests lightweight.
-    Returns mapping with keys ``skills``, ``tools`` and ``roles``.
+    Recognises a couple of keywords so unit tests can exercise the IE
+    pipeline without heavy ML models.
     """
 
     skills: list[str] = []
@@ -21,6 +23,8 @@ def tag_esco(text: str) -> dict[str, list[str]]:
     roles: list[str] = []
     if DOCKER_RE.search(text):
         skills.append("Docker")
+    if GRAFANA_RE.search(text):
+        tools.append("Grafana")
     return {"skills": skills, "tools": tools, "roles": roles}
 
 
@@ -96,6 +100,13 @@ def extract_ie(
             ]
         except Exception:
             pass
+
+    # simple regex based metric extraction to keep tests self contained
+    metrics: dict[str, float] = {}
+    for m, val in METRIC_RE.findall(text):
+        metrics[m.upper()] = float(val)
+    if metrics:
+        projects.append(IEProject(title="autodetected", metrics=metrics))
 
     return IE(
         skills=skills,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import logging
 from typing import Any, Dict
 
 import requests
@@ -49,17 +50,23 @@ class LLMClient:
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
 
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": "верни ТОЛЬКО валидный JSON по схеме"},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-        }
+        schema_str = json.dumps(json_schema)
+        system_prompt = (
+            "верни ТОЛЬКО валидный JSON по схеме "
+            f"{schema_str} без комментариев, без markdown"
+        )
 
-        for _ in range(2):
+        for attempt in range(2):
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+            }
+
             start = time.time()
             resp = requests.post(url, headers=headers, json=payload, timeout=30)
             resp.raise_for_status()
@@ -70,6 +77,9 @@ class LLMClient:
                 validate(data, json_schema)
                 return data
             except Exception:
+                logging.debug("invalid LLM response: %s", content)
+                if attempt == 1:
+                    break
                 continue
 
         raise ValueError("LLM did not return valid JSON")
