@@ -7,6 +7,15 @@ import time
 import uuid
 import struct
 from pathlib import Path
+import re
+
+from prometheus_client import (
+    Counter,
+    Histogram,
+    CONTENT_TYPE_LATEST,
+    generate_latest,
+)
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from pydantic import TypeAdapter, ValidationError
 
@@ -49,13 +58,55 @@ app.add_middleware(
 )
 
 
+class PIIFormatter(logging.Formatter):
+    email_re = re.compile(r"[\w\.-]+@[\w\.-]+")
+    phone_re = re.compile(r"\+?\d[\d\s-]{7,}\d")
+
+    def format(self, record: logging.LogRecord) -> str:  # pragma: no cover - formatting
+        msg = record.getMessage()
+        msg = self.email_re.sub("[REDACTED_EMAIL]", msg)
+        msg = self.phone_re.sub("[REDACTED_PHONE]", msg)
+        data = {
+            "level": record.levelname,
+            "time": self.formatTime(record, self.datefmt),
+            "message": msg,
+        }
+        return json.dumps(data)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(PIIFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[handler])
+
 log_dir = Path("logs")
 log_dir.mkdir(exist_ok=True)
 logger = logging.getLogger("stream")
-logger.setLevel(logging.INFO)
 _handler = logging.FileHandler(log_dir / "stream.log")
-_handler.setFormatter(logging.Formatter("%(message)s"))
+_handler.setFormatter(PIIFormatter())
 logger.addHandler(_handler)
+
+
+REQUEST_COUNT = Counter(
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "http_status"]
+)
+REQUEST_LATENCY = Histogram(
+    "request_latency_seconds", "Request latency", ["method", "endpoint"]
+)
+ASR_PARTIAL_LATENCY = Histogram("asr_partial_latency", "ASR partial latency")
+ASR_FINAL_LATENCY = Histogram("asr_final_latency", "ASR final latency")
+SCORE_OVERALL_HIST = Histogram("score_overall_hist", "Final score histogram")
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        start = time.time()
+        response = await call_next(request)
+        REQUEST_COUNT.labels(request.method, request.url.path, str(response.status_code)).inc()
+        REQUEST_LATENCY.labels(request.method, request.url.path).observe(time.time() - start)
+        return response
+
+
+app.add_middleware(MetricsMiddleware)
 
 templates = Environment(loader=FileSystemLoader(Path("app") / "templates"))
 
@@ -79,6 +130,11 @@ RubricAdapter = TypeAdapter(Rubric)
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics() -> Response:
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/interview/start")
@@ -119,6 +175,7 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
     try:
         while True:
             message = await websocket.receive()
+            msg_start = time.monotonic()
             if message.get("type") == "websocket.disconnect":
                 break
             data = message.get("text")
@@ -130,6 +187,7 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
                     chunk = ASRChunk(type="final", t0=0.0, t1=0.0, text=text_buffer)
                     await websocket.send_json(chunk.model_dump())
                     log_chunk(chunk)
+                    ASR_FINAL_LATENCY.observe(time.monotonic() - msg_start)
                     await websocket.close()
                     break
                 text_buffer += data
@@ -138,6 +196,7 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
                     chunk = ASRChunk(type="partial", t0=0.0, t1=0.0, text=text_buffer)
                     await websocket.send_json(chunk.model_dump())
                     log_chunk(chunk)
+                    ASR_PARTIAL_LATENCY.observe(time.monotonic() - msg_start)
                     last_partial = now
             else:
                 pcm = message.get("bytes") or b""
@@ -151,6 +210,7 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
                         chunk = ASRChunk(type="final", t0=0.0, t1=0.0, text=text_buffer)
                         await websocket.send_json(chunk.model_dump())
                         log_chunk(chunk)
+                        ASR_FINAL_LATENCY.observe(time.monotonic() - msg_start)
                         text_buffer = ""
                         await websocket.close()
                         break
@@ -159,6 +219,7 @@ async def stream(session_id: str, websocket: WebSocket, use_vad: bool = False):
                     chunk = ASRChunk(type="partial", t0=0.0, t1=0.0, text=text_buffer)
                     await websocket.send_json(chunk.model_dump())
                     log_chunk(chunk)
+                    ASR_PARTIAL_LATENCY.observe(time.monotonic() - msg_start)
                     last_partial = now
     except WebSocketDisconnect:
         pass
@@ -279,7 +340,9 @@ async def rubric_score(req: RubricScoreRequest) -> Rubric:
 
 @app.post("/score/final")
 async def score_final(req: FinalScoreRequest) -> FinalScore:
-    return compute_final_score(req.jd, req.ie, req.coverage, req.rubric, req.aux)
+    res = compute_final_score(req.jd, req.ie, req.coverage, req.rubric, req.aux)
+    SCORE_OVERALL_HIST.observe(res.overall)
+    return res
 
 
 @app.post("/report")
