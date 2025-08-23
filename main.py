@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.match import router as match_router
 
 app = FastAPI()
 
@@ -18,6 +19,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(match_router)
 
 
 @app.get("/healthz")
@@ -75,11 +78,6 @@ async def dm_next():
 @app.post("/ie/extract")
 async def ie_extract() -> IE:
     return IE(skills=[], tools=[], years={}, projects=[], roles=[])
-
-
-@app.post("/match/coverage")
-async def match_coverage() -> Coverage:
-    return Coverage(per_indicator={}, per_competency={})
 
 
 @app.post("/rubric/score")
