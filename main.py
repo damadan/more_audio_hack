@@ -6,6 +6,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
+from app.obs import setup_metrics
 from app.schemas import IE, Coverage, Rubric, FinalScore
 
 app = FastAPI()
@@ -18,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Observability hooks
+setup_metrics(app)
 
 
 @app.get("/healthz")
