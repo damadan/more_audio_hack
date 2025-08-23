@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
 from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.dialog_manager import router as dm_router
 
 app = FastAPI()
 
@@ -18,6 +19,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(dm_router)
 
 
 @app.get("/healthz")
@@ -65,11 +68,6 @@ async def tts_stub():
     audio_bytes = buffer.getvalue()
     headers = {"Content-Type": "audio/wav"}
     return Response(content=audio_bytes, media_type="audio/wav", headers=headers)
-
-
-@app.post("/dm/next")
-async def dm_next():
-    return {"response": "stub"}
 
 
 @app.post("/ie/extract")
