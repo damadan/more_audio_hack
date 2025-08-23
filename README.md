@@ -20,30 +20,42 @@ graph LR
 
 ## Быстрый старт
 
-1. Подготовьте файл окружения:
+### 1) MOCK‑режим (без vLLM)
+
+1. Подготовьте окружение и запустите сервис:
    ```bash
-   cp .env.example .env  # отредактируйте при необходимости
+   cp .env.example .env  # укажите APP_PORT и WS_BASE_URL при необходимости
+   uvicorn main:app --host 0.0.0.0 --port 8080
    ```
-2. Запустите локальный vLLM с моделью Qwen‑2.5‑14B‑Instruct:
+2. Прогоните smoke‑тест (он автоматически добавит `?mock=1` для рубрики):
+   ```bash
+   python scripts/smoke_e2e.py
+   ```
+
+### 2) REAL‑режим (с vLLM)
+
+1. Запустите vLLM с моделью Qwen‑2.5‑14B‑Instruct:
    ```bash
    python -m vllm.entrypoints.openai.api_server \
        --model Qwen/Qwen2.5-14B-Instruct --host 0.0.0.0 --port 8000
    ```
-3. Старт сервиса:
-   ```bash
-   make run           # или docker compose up -d
-   ```
+2. Запустите сервис (`make run` или `docker compose up -d`).
+3. Выполните тот же `python scripts/smoke_e2e.py` — тест пойдёт в REAL‑режиме.
+
+Пример запроса к `/interview/start`:
+
+```bash
+curl -s -X POST http://localhost:8080/interview/start
+# {"session_id": "...", "ws_url": "ws://localhost:8080/stream/..."}
+```
+
+`ws_url` берётся из `WS_BASE_URL` или собирается из заголовков
+`X-Forwarded-Proto/Host` при работе за прокси.
 
 ## Smoke‑тест
 
-После запуска сервиса выполните:
-
-```bash
-python scripts/smoke_e2e.py
-```
-
-Скрипт последовательно вызывает `/ie/extract → /match/coverage → /rubric/score →
-/score/final → /report` и выводит:
+Скрипт `scripts/smoke_e2e.py` вызывает `/ie/extract → /match/coverage →
+/rubric/score → /score/final → /report` и печатает:
 
 ```
 overall: 0.73
@@ -75,4 +87,6 @@ report length: 12345
   индексы). Их нужно загрузить отдельно.
 - Поддержка Riva ASR и генерации PDF отчёта требует дополнительных
   зависимостей.
+- Без запущенного vLLM необходимо использовать `?mock=1`/`X-Mock: 1` для
+  `/rubric/score` и smoke‑теста.
 

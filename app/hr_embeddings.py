@@ -14,11 +14,9 @@ from functools import lru_cache
 from typing import Iterable, List
 import numpy as np
 
-_DIM = 64  # dimension of the hashed embedding
+_DIM = 64  # dimension of the hashed embedding used for tests
 
-_TRANSLATIONS = {
-    "serving": "деплой",
-}
+_TRANSLATIONS = {"serving": "деплой"}
 
 
 def _tokenise(text: str) -> List[str]:
@@ -29,24 +27,20 @@ def _tokenise(text: str) -> List[str]:
 def _embed_single(text: str, backend: str = "BGE_M3") -> np.ndarray:
     """Embed a single ``text`` into a fixed size vector.
 
-    The implementation uses a hashing trick: every token contributes ``1``
-    to a bucket determined by ``hash(token) % _DIM``.  The resulting vector
-    is L2 normalised so that cosine similarity reduces to a dot product.
-    ``backend`` is ignored but kept for compatibility.
+    Only the ``BGE_M3`` backend is supported in tests.  The implementation
+    intentionally uses a simple hashing trick and is **not** a real
+    embedding model.
     """
 
-    tokens = [
-        _TRANSLATIONS.get(tok, tok)
-        for tok in _tokenise(text)
-        if tok.strip()
-    ]
+    if backend != "BGE_M3":
+        raise ValueError("Only BGE_M3 backend is supported in tests")
+
+    tokens = [_TRANSLATIONS.get(tok, tok) for tok in _tokenise(text) if tok.strip()]
     if not tokens:
         return np.zeros(_DIM, dtype="float32")
     vec = np.zeros(_DIM, dtype="float32")
     for tok in tokens:
         vec[abs(hash(tok)) % _DIM] += 1.0
-    # do not normalise to keep overlaps expressive; FAISS will use inner
-    # product which behaves similar to cosine for small vectors.
     return vec
 
 
