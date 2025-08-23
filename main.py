@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, Response
 
 from app.obs import setup_metrics
 from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.ie_extractor import router as ie_router
 
 app = FastAPI()
 
@@ -76,9 +77,7 @@ async def dm_next():
     return {"response": "stub"}
 
 
-@app.post("/ie/extract")
-async def ie_extract() -> IE:
-    return IE(skills=[], tools=[], years={}, projects=[], roles=[])
+app.include_router(ie_router)
 
 
 @app.post("/match/coverage")
