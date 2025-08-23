@@ -156,6 +156,25 @@ class FinalScoreRequest(BaseModel):
     aux: dict[str, object] = Field(default_factory=dict)
 
 
+class ReportRequest(BaseModel):
+    """Request schema for ``/report`` endpoint."""
+
+    candidate: str | None = None
+    vacancy: str | None = None
+    rubric: Rubric
+    final: FinalScore
+    audio_url: str = "audio"
+
+
+class ATSSyncRequest(BaseModel):
+    """Request schema for ``/ats/sync`` endpoint."""
+
+    candidate_id: str
+    vacancy_id: str
+    decision: str
+    report_link: str
+
+
 __all__ = [
     "JDIndicator",
     "JDCompetency",
@@ -179,4 +198,6 @@ __all__ = [
     "CompScore",
     "FinalScore",
     "FinalScoreRequest",
+    "ReportRequest",
+    "ATSSyncRequest",
 ]

@@ -1,10 +1,11 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, Response
 import json
 import logging
 import time
 import uuid
+import struct
 from pathlib import Path
 
 from pydantic import TypeAdapter, ValidationError
@@ -25,10 +26,17 @@ from app.schemas import (
     RubricEvidence,
     FinalScoreRequest,
     FinalScore,
+    ReportRequest,
+    ATSSyncRequest,
 )
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
 from app.scoring import final_score as compute_final_score
+
+from jinja2 import Environment, FileSystemLoader
+import os
+import asyncio
+import requests
 
 app = FastAPI()
 
@@ -48,6 +56,8 @@ logger.setLevel(logging.INFO)
 _handler = logging.FileHandler(log_dir / "stream.log")
 _handler.setFormatter(logging.Formatter("%(message)s"))
 logger.addHandler(_handler)
+
+templates = Environment(loader=FileSystemLoader(Path("app") / "templates"))
 
 DM_JSON_SCHEMA = {
     "type": "object",
@@ -273,5 +283,51 @@ async def score_final(req: FinalScoreRequest) -> FinalScore:
 
 
 @app.post("/report")
-async def report():
-    return {"result": "stub"}
+async def report(req: ReportRequest, fmt: str = "html"):
+    template = templates.get_template("report.html")
+    overall_pct = round(req.final.overall * 100)
+    html = template.render(
+        candidate=req.candidate,
+        vacancy=req.vacancy,
+        rubric=req.rubric,
+        final=req.final,
+        overall_pct=overall_pct,
+        audio_url=req.audio_url,
+        labels=list(req.rubric.scores.keys()),
+        scores=list(req.rubric.scores.values()),
+    )
+    if fmt == "pdf":
+        try:
+            from weasyprint import HTML
+
+            pdf = HTML(string=html).write_pdf()
+            return Response(content=pdf, media_type="application/pdf")
+        except Exception as exc:  # pragma: no cover - optional dependency
+            raise HTTPException(status_code=500, detail=f"pdf generation failed: {exc}")
+    return HTMLResponse(html)
+
+
+@app.post("/ats/sync")
+async def ats_sync(req: ATSSyncRequest):
+    url = os.environ.get("MOCK_ATS_URL")
+    if not url:
+        raise HTTPException(status_code=500, detail="MOCK_ATS_URL not set")
+    headers = {"Idempotency-Key": f"{req.candidate_id}:{req.vacancy_id}"}
+    payload = req.model_dump()
+    delay = 1.0
+    for attempt in range(3):
+        try:
+            resp = requests.post(url, json=payload, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                return {"status": "ok"}
+            if resp.status_code >= 500:
+                raise Exception("server error")
+            raise HTTPException(status_code=resp.status_code, detail=resp.text)
+        except HTTPException:
+            raise
+        except Exception:
+            if attempt == 2:
+                raise HTTPException(status_code=502, detail="ATS sync failed")
+            await asyncio.sleep(delay)
+            delay *= 2
+    return {"status": "ok"}
