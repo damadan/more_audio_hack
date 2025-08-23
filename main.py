@@ -17,8 +17,11 @@ from app.schemas import (
     NextAction,
     JD,
     DMTurn,
+    IEExtractRequest,
+    IE,
 )
 from app.tts import pcm_to_wav, stream_bytes, synthesize
+from app.ie import extract_ie
 
 app = FastAPI()
 
@@ -180,8 +183,16 @@ async def dm_next(req: DMRequest) -> NextAction:
 
 
 @app.post("/ie/extract")
-async def ie_extract():
-    return {"result": "stub"}
+async def ie_extract(req: IEExtractRequest) -> IE:
+    if isinstance(req.transcript, str):
+        chunks = [ASRChunk(type="final", t0=0.0, t1=0.0, text=req.transcript)]
+    else:
+        chunks = req.transcript
+    try:
+        llm = LLMClient.from_env()
+    except Exception:
+        llm = None
+    return extract_ie(chunks, req.include_timestamps, llm)
 
 
 @app.post("/match/coverage")

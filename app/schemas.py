@@ -75,6 +75,13 @@ class IE(BaseModel):
     roles: list[str]
 
 
+class IEExtractRequest(BaseModel):
+    """Request schema for ``/ie/extract`` endpoint."""
+
+    transcript: str | list[ASRChunk]
+    include_timestamps: bool = False
+
+
 class Coverage(BaseModel):
     per_indicator: dict[str, float]
     per_competency: dict[str, float]
@@ -145,7 +152,8 @@ __all__ = [
     "IEEvidence",
     "IESkill",
     "IEProject",
-    "IE", 
+    "IE",
+    "IEExtractRequest",
     "Coverage",
     "DMTurn",
     "DMContext",
