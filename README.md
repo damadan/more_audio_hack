@@ -1,10 +1,5 @@
-# more_audio_hack
+# Interview Assistant MVP (skeleton)
 
-## Запуск сервера
-
-```bash
-pip install fastapi uvicorn
-uvicorn main:app --reload
-```
-
-Приложение предоставляет заглушки API на основе FastAPI.
+Этот репозиторий очищен. Содержит только README.  
+Исходный код сервисов ASR/TTS/LLM/IE/Scoring удалён.  
+Используй как заготовку для новой разработки.
