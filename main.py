@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, HTMLResponse, Response
 import json
@@ -33,7 +33,6 @@ from app.schemas import (
     Rubric,
     Coverage,
     CoverageRequest,
-    RubricEvidence,
     FinalScoreRequest,
     FinalScore,
     ReportRequest,
@@ -48,6 +47,8 @@ from app.match import (
 from app.tts import pcm_to_wav, stream_bytes, synthesize
 from app.ie import extract_ie
 from app.scoring import final_score as compute_final_score
+from app.config import settings
+from app.rubric import score_rubric
 
 from jinja2 import Environment, FileSystemLoader
 import os
@@ -131,7 +132,6 @@ DM_JSON_SCHEMA = {
 }
 
 NextActionAdapter = TypeAdapter(NextAction)
-RubricAdapter = TypeAdapter(Rubric)
 
 
 @app.get("/healthz")
@@ -145,9 +145,16 @@ async def metrics() -> Response:
 
 
 @app.post("/interview/start")
-async def interview_start():
+async def interview_start(request: Request):
     session_id = str(uuid.uuid4())
-    ws_url = f"ws://localhost:8000/stream/{session_id}"
+    proto = request.headers.get("X-Forwarded-Proto")
+    host = request.headers.get("X-Forwarded-Host")
+    if proto and host:
+        scheme = "wss" if proto == "https" else "ws"
+        base = f"{scheme}://{host}"
+    else:
+        base = settings.WS_BASE_URL
+    ws_url = f"{base.rstrip('/')}/stream/{session_id}"
     return {"session_id": session_id, "ws_url": ws_url}
 
 
@@ -244,52 +251,6 @@ async def tts(req: TTSRequest):
     return StreamingResponse(stream_bytes(data), media_type=media_type)
 
 
-
-
-def build_rubric_prompt(jd: JD, transcript: str | IE, coverage: Coverage | None) -> str:
-    system = (
-        "You are evaluating a candidate.\n"
-        "Score each competency from 0 to 5 with the following anchors:\n"
-        "0: no evidence of skill\n"
-        "1: awareness only\n"
-        "2: limited experience\n"
-        "3: working proficiency\n"
-        "4: strong proficiency\n"
-        "5: expert mastery.\n"
-        "Return JSON with keys {scores, red_flags, evidence}.\n"
-        "Each evidence item must contain quote, t0, t1 and competency.\n"
-        "List any concerns in red_flags."
-    )
-    jd_context = f"Job Description:\n{jd.model_dump_json(indent=2)}\n"
-    if isinstance(transcript, IE):
-        interview_context = f"IE:\n{transcript.model_dump_json(indent=2)}\n"
-    else:
-        interview_context = f"Transcript:\n{transcript}\n"
-    coverage_context = (
-        f"Coverage:\n{coverage.model_dump_json(indent=2)}\n" if coverage else ""
-    )
-    return f"{system}\n\n{jd_context}{interview_context}{coverage_context}"
-
-
-def merge_rubrics(*rubrics: Rubric) -> Rubric:
-    scores: dict[str, list[int]] = {}
-    for r in rubrics:
-        for name, score in r.scores.items():
-            scores.setdefault(name, []).append(score)
-    merged_scores = {
-        name: round(sum(vals) / len(vals)) for name, vals in scores.items()
-    }
-    evidence_map: dict[tuple[str, float, float, str | None], RubricEvidence] = {}
-    for r in rubrics:
-        for ev in r.evidence:
-            key = (ev.quote, ev.t0, ev.t1, ev.competency)
-            evidence_map[key] = ev
-    red_flags = list({rf for r in rubrics for rf in r.red_flags})
-    return Rubric(
-        scores=merged_scores, evidence=list(evidence_map.values()), red_flags=red_flags
-    )
-
-
 @app.post("/dm/next")
 async def dm_next(req: DMRequest) -> NextAction:
     prompt = dm_build_prompt(req.jd, req.context.turns, req.coverage)
@@ -323,18 +284,15 @@ async def match_coverage(req: CoverageRequest) -> Coverage:
 
 
 @app.post("/rubric/score")
-async def rubric_score(req: RubricScoreRequest) -> Rubric:
-    prompt = build_rubric_prompt(req.jd, req.transcript, req.coverage)
-    client = LLMClient.from_env()
-    schema = Rubric.model_json_schema()
-    raw1 = client.generate_json(prompt=prompt, json_schema=schema)
-    raw2 = client.generate_json(prompt=prompt, json_schema=schema)
+async def rubric_score(req: RubricScoreRequest, request: Request) -> Rubric:
+    use_mock = False
+    if settings.ALLOW_RUBRIC_MOCK:
+        if request.query_params.get("mock") == "1" or request.headers.get("X-Mock") == "1":
+            use_mock = True
     try:
-        r1 = RubricAdapter.validate_python(raw1)
-        r2 = RubricAdapter.validate_python(raw2)
+        return score_rubric(req, use_mock)
     except ValidationError as exc:  # pragma: no cover - should rarely happen
         raise HTTPException(status_code=500, detail=f"LLM JSON invalid: {exc}")
-    return merge_rubrics(r1, r2)
 
 
 @app.post("/score/final")
