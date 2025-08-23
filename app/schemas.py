@@ -87,6 +87,12 @@ class Coverage(BaseModel):
     per_competency: dict[str, float]
 
 
+class RubricScoreRequest(BaseModel):
+    jd: JD
+    transcript: str | IE
+    coverage: Coverage | None = None
+
+
 class DMTurn(BaseModel):
     role: Literal["user", "assistant"]
     text: str
@@ -155,6 +161,7 @@ __all__ = [
     "IE",
     "IEExtractRequest",
     "Coverage",
+    "RubricScoreRequest",
     "DMTurn",
     "DMContext",
     "DMRequest",
