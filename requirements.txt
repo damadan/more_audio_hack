@@ -1,0 +1,6 @@
+dateparser
+fastapi
+pydantic
+requests
+httpx
+jsonschema
