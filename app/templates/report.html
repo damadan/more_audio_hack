@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Interview Report</title>
+</head>
+<body>
+    <h1>Interview Report</h1>
+    <p>Overall: {{ (final.overall * 100) | round(1) }}%</p>
+    <h2>Competency Map</h2>
+    <table border="1" cellspacing="0" cellpadding="4">
+        <tr><th>Competency</th><th>Score</th><th>Coverage</th></tr>
+        {% for comp in jd.competencies %}
+        <tr>
+            <td>{{ comp.name }}</td>
+            <td>{{ rubric.scores.get(comp.name, 0) }}</td>
+            <td>{{ (coverage.per_competency.get(comp.name, 0)*100) | round(1) }}%</td>
+        </tr>
+        {% endfor %}
+    </table>
+    <h2>Evidence</h2>
+    <ul>
+    {% for ev in rubric.evidence %}
+        <li>{{ ev.quote }} - <a href="audio?t0={{ev.t0}}&t1={{ev.t1}}">{{ev.t0}}–{{ev.t1}}</a></li>
+    {% endfor %}
+    </ul>
+</body>
+</html>

@@ -6,7 +6,10 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 
-from app.schemas import IE, Coverage, Rubric, FinalScore
+from app.schemas import IE, Coverage, Rubric
+from app.scorer import router as scorer_router
+from app.report import router as report_router
+from app.ats import router as ats_router
 
 app = FastAPI()
 
@@ -18,6 +21,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(scorer_router)
+app.include_router(report_router)
+app.include_router(ats_router)
 
 
 @app.get("/healthz")
@@ -85,13 +92,3 @@ async def match_coverage() -> Coverage:
 @app.post("/rubric/score")
 async def rubric_score() -> Rubric:
     return Rubric(scores={}, red_flags=[], evidence=[])
-
-
-@app.post("/score/final")
-async def score_final() -> FinalScore:
-    return FinalScore(overall=0.0, decision="reject", reasons=[], by_comp=[])
-
-
-@app.post("/report")
-async def report():
-    return {"status": "stub"}
