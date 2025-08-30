@@ -2,9 +2,13 @@ from __future__ import annotations
 
 """Minimal Silero TTS placeholder used for tests and local development."""
 
+import logging
 import numpy as np
 
 from common.audio import float32_to_pcm16
+
+
+log = logging.getLogger(__name__)
 
 
 class SileroTTS:
@@ -23,6 +27,7 @@ class SileroTTS:
     def __init__(self, speaker: str = "ru_v3", device: str = "cpu") -> None:
         self.speaker = speaker
         self.device = device
+        log.info("SileroTTS initialized speaker=%s", speaker)
 
     def synthesize(self, text: str) -> bytes:
         """Return a short silence placeholder for the given text."""
@@ -30,4 +35,6 @@ class SileroTTS:
         duration = max(len(text) * 0.05, 0.2)  # seconds of audio
         samples = int(self.sample_rate * duration)
         silence = np.zeros(samples, dtype=np.float32)
-        return float32_to_pcm16(silence)
+        pcm = float32_to_pcm16(silence)
+        log.debug("synthesize produced %d bytes", len(pcm))
+        return pcm

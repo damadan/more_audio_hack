@@ -2,8 +2,12 @@ from __future__ import annotations
 
 """Automatic speech recognition utilities using faster-whisper."""
 
+import logging
 import numpy as np
 from faster_whisper import WhisperModel
+
+
+log = logging.getLogger(__name__)
 
 
 class AsrEngine:
@@ -22,6 +26,7 @@ class AsrEngine:
             device=config.asr_device,
             compute_type=config.asr_compute_type,
         )
+        log.info("ASR model loaded: %s", config.asr_model)
 
     def transcribe_window(self, audio: np.ndarray, lang: str = "ru") -> str:
         """Transcribe a window of PCM audio and return recognized text.
@@ -38,10 +43,13 @@ class AsrEngine:
         str
             Concatenated text from all transcription segments.
         """
+        log.debug("transcribe window size=%d", len(audio))
         segments, _ = self.model.transcribe(
             audio,
             language=lang,
             beam_size=1,
             vad_filter=True,
         )
-        return "".join(segment.text for segment in segments)
+        text = "".join(segment.text for segment in segments)
+        log.debug("transcription result: %s", text.strip())
+        return text

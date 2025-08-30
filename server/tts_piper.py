@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import logging
 import numpy as np
 
 from common.audio import float32_to_pcm16, resample
@@ -17,6 +18,9 @@ try:  # pragma: no cover - environment may not have piper_phonemizer
     from piper_phonemizer import piper_phonemize
 except Exception:  # pragma: no cover
     piper_phonemize = None  # type: ignore
+
+
+log = logging.getLogger(__name__)
 
 
 class PiperTTS:
@@ -49,6 +53,7 @@ class PiperTTS:
             raise RuntimeError("onnxruntime is required for PiperTTS")
 
         self.session = ort.InferenceSession(model_path)
+        log.info("Piper model loaded: %s", model_path)
 
     def synthesize(self, text: str) -> bytes:
         """Synthesize text into 16 kHz PCM16 audio.
@@ -66,6 +71,7 @@ class PiperTTS:
         if piper_phonemize is None:  # pragma: no cover - handled via mocks in tests
             raise RuntimeError("piper_phonemizer is required for phonemization")
 
+        log.debug("synthesize text length=%d", len(text))
         phonemes = piper_phonemize(text, self.speaker_json)
         audio = self.session.run(None, {"input": phonemes})[0]
         audio = np.asarray(audio, dtype=np.float32)
@@ -74,4 +80,6 @@ class PiperTTS:
         if self.model_sample_rate != self.sample_rate:
             audio = resample(audio, self.model_sample_rate, self.sample_rate)
 
-        return float32_to_pcm16(audio)
+        pcm = float32_to_pcm16(audio)
+        log.debug("synthesize produced %d bytes", len(pcm))
+        return pcm
