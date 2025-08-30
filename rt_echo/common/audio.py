@@ -1,21 +1,23 @@
+from typing import cast
+
 import numpy as np
 
 try:
-    from scipy import signal  # type: ignore
+    from scipy import signal
 except Exception:  # pragma: no cover
-    signal = None  # type: ignore
+    signal = None
 
 try:
-    import resampy  # type: ignore
+    import resampy
 except Exception:  # pragma: no cover
-    resampy = None  # type: ignore
+    resampy = None
 
 
 def float32_to_pcm16(audio: np.ndarray) -> bytes:
     """Convert float32 numpy array to 16-bit PCM bytes."""
     audio = np.asarray(audio, dtype=np.float32)
     audio = np.clip(audio, -1.0, 1.0)
-    return (audio * 32767).astype(np.int16).tobytes()
+    return cast(bytes, (audio * 32767).astype(np.int16).tobytes())
 
 
 def pcm16_to_float32(pcm: bytes) -> np.ndarray:
