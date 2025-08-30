@@ -7,7 +7,7 @@ from pathlib import Path
 import logging
 import numpy as np
 
-from common.audio import float32_to_pcm16, resample
+from rt_echo.common.audio import float32_to_pcm16, resample
 
 try:  # pragma: no cover - environment may not have onnxruntime
     import onnxruntime as ort

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import numpy as np
 
-from common.audio import float32_to_pcm16
+from rt_echo.common.audio import float32_to_pcm16
 
 
 log = logging.getLogger(__name__)

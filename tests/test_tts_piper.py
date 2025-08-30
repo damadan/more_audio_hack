@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
-from common.audio import float32_to_pcm16, resample
+from rt_echo.common.audio import float32_to_pcm16, resample
 from server.tts_piper import PiperTTS
 
 

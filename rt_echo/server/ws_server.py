@@ -8,7 +8,7 @@ import contextlib
 
 import websockets
 
-from common.config import load_config
+from rt_echo.common.config import load_config
 
 BYTES_PER_SAMPLE = 2
 
