@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Text-to-speech utilities using Piper models."""
+
+from __future__ import annotations
 
 from pathlib import Path
 

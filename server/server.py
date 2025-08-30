@@ -6,6 +6,7 @@ from pathlib import Path
 
 import websockets
 from aiohttp import web
+from typing import Any
 
 from rt_echo.common.config import load_config
 
@@ -17,7 +18,7 @@ from .tts_silero import SileroTTS
 log = logging.getLogger(__name__)
 
 
-async def reader(ws: websockets.WebSocketServerProtocol, session: EchoSession) -> None:
+async def reader(ws: Any, session: EchoSession) -> None:
     """Receive binary PCM frames from the websocket and feed the session."""
     async for message in ws:
         if isinstance(message, bytes):
@@ -25,7 +26,7 @@ async def reader(ws: websockets.WebSocketServerProtocol, session: EchoSession) -
             session.push(message)
 
 
-async def writer(ws: websockets.WebSocketServerProtocol, session: EchoSession) -> None:
+async def writer(ws: Any, session: EchoSession) -> None:
     """Run session processing loop and stream synthesized speech."""
     log.debug("writer start")
     await session.tick(ws)
@@ -45,6 +46,7 @@ async def start_server() -> None:
     )
     asr = AsrEngine(cfg)
 
+    tts: PiperTTS | SileroTTS
     if cfg.tts_engine.lower() == "piper":
         model_path = Path(f"{cfg.ru_speaker}.onnx")
         speaker_json = Path(f"{cfg.ru_speaker}.json")
@@ -54,7 +56,7 @@ async def start_server() -> None:
     else:
         raise ValueError(f"Unknown TTS engine: {cfg.tts_engine}")
 
-    async def handler(ws: websockets.WebSocketServerProtocol) -> None:
+    async def handler(ws: Any) -> None:
         log.info("websocket connected")
         session = EchoSession(cfg, asr, tts)
         r_task = asyncio.create_task(reader(ws, session))

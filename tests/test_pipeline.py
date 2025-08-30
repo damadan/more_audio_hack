@@ -73,7 +73,7 @@ async def run_test():
     asr = DummyAsr()
     tts = DummyTTS()
 
-    async def handler(ws: websockets.WebSocketServerProtocol) -> None:
+    async def handler(ws) -> None:
         session = EchoSession(cfg, asr, tts)
         r_task = asyncio.create_task(reader(ws, session))
         w_task = asyncio.create_task(writer(ws, session))

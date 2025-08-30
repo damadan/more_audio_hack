@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Automatic speech recognition utilities using faster-whisper."""
+
+from __future__ import annotations
 
 import logging
 import numpy as np
