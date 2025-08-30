@@ -13,6 +13,10 @@ from .player import PcmPlayer
 async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
     """Connect to a websocket server and stream audio in both directions.
 
+    Automatically reconnects with exponential backoff (max 5 s) when the
+    connection drops. Audio threads are safely shut down on disconnect or
+    cancellation.
+
     Parameters
     ----------
     url:
@@ -23,17 +27,45 @@ async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
         PCM player consuming audio blocks from the server.
     """
 
-    async with websockets.connect(url) as ws, mic, player:
-        async def _sender() -> None:
-            while True:
-                block = await mic.read_block()
-                await ws.send(block)
+    backoff = 1.0
+    while True:
+        try:
+            async with websockets.connect(url) as ws, mic, player:
+                backoff = 1.0  # Reset backoff after successful connection
 
-        async def _receiver() -> None:
-            async for message in ws:
-                if isinstance(message, bytes):
-                    await player.play(message)
-                else:
-                    logging.info(json.dumps({"type": "partial", "text": message}))
+                async def _sender() -> None:
+                    while True:
+                        block = await mic.read_block()
+                        await ws.send(block)
 
-        await asyncio.gather(_sender(), _receiver())
+                async def _receiver() -> None:
+                    async for message in ws:
+                        if isinstance(message, bytes):
+                            await player.play(message)
+                        else:
+                            logging.info(
+                                json.dumps({"type": "partial", "text": message})
+                            )
+
+                sender_task = asyncio.create_task(_sender())
+                receiver_task = asyncio.create_task(_receiver())
+                done, pending = await asyncio.wait(
+                    {sender_task, receiver_task},
+                    return_when=asyncio.FIRST_EXCEPTION,
+                )
+
+                for task in pending:
+                    task.cancel()
+                await asyncio.gather(*pending, return_exceptions=True)
+                for task in done:
+                    task.result()
+
+        except asyncio.CancelledError:
+            # Propagate cancellation to allow graceful shutdown by context managers
+            raise
+        except (OSError, websockets.WebSocketException) as exc:
+            logging.warning(
+                "Connection error: %s. Reconnecting in %.1f s", exc, backoff
+            )
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 5.0)
