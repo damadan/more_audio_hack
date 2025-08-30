@@ -10,17 +10,15 @@ import websockets
 
 from common.config import load_config
 
-STEP_SEC = 0.5
-WINDOW_SEC = 2.0
 BYTES_PER_SAMPLE = 2
 
 
 class Session:
     """Store incoming audio frames and provide sliding window access."""
 
-    def __init__(self, sample_rate: int) -> None:
+    def __init__(self, sample_rate: int, window_sec: float) -> None:
         self.sample_rate = sample_rate
-        self.max_bytes = int(sample_rate * WINDOW_SEC * BYTES_PER_SAMPLE)
+        self.max_bytes = int(sample_rate * window_sec * BYTES_PER_SAMPLE)
         self.frames: Deque[bytes] = deque()
         self.size = 0
 
@@ -45,8 +43,8 @@ async def process_window(session: Session) -> None:
 
 async def handler(ws: websockets.WebSocketServerProtocol, path: str) -> None:
     cfg = load_config()
-    session = Session(cfg.asr_sr)
-    loop_task = asyncio.create_task(_processing_loop(session))
+    session = Session(cfg.asr_sr, cfg.window_sec)
+    loop_task = asyncio.create_task(_processing_loop(session, cfg.step_sec))
     try:
         async for message in ws:
             if isinstance(message, bytes):
@@ -59,9 +57,9 @@ async def handler(ws: websockets.WebSocketServerProtocol, path: str) -> None:
             await loop_task
 
 
-async def _processing_loop(session: Session) -> None:
+async def _processing_loop(session: Session, step_sec: float) -> None:
     while True:
-        await asyncio.sleep(STEP_SEC)
+        await asyncio.sleep(step_sec)
         await process_window(session)
 
 

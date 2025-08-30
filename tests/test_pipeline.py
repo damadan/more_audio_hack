@@ -69,7 +69,7 @@ async def run_client(uri: str, pcm_bytes: bytes):
 
 
 async def run_test():
-    cfg = SimpleNamespace(asr_sr=SAMPLE_RATE)
+    cfg = SimpleNamespace(asr_sr=SAMPLE_RATE, window_sec=2.0, step_sec=0.5)
     asr = DummyAsr()
     tts = DummyTTS()
 
