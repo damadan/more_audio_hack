@@ -6,6 +6,8 @@ from pathlib import Path
 
 import numpy as np
 
+from common.audio import float32_to_pcm16, resample
+
 try:  # pragma: no cover - environment may not have onnxruntime
     import onnxruntime as ort
 except Exception:  # pragma: no cover
@@ -30,9 +32,15 @@ class PiperTTS:
 
     sample_rate = 16_000
 
-    def __init__(self, model_path: str, speaker_json: str) -> None:
+    def __init__(
+        self,
+        model_path: str,
+        speaker_json: str,
+        model_sample_rate: int | None = None,
+    ) -> None:
         self.model_path = model_path
         self.speaker_json = speaker_json
+        self.model_sample_rate = model_sample_rate or self.sample_rate
 
         if not Path(model_path).is_file():
             raise FileNotFoundError(f"Piper model not found: {model_path}")
@@ -62,5 +70,8 @@ class PiperTTS:
         audio = self.session.run(None, {"input": phonemes})[0]
         audio = np.asarray(audio, dtype=np.float32)
         audio = np.clip(audio, -1.0, 1.0)
-        pcm = (audio * 32767).astype(np.int16)
-        return pcm.tobytes()
+
+        if self.model_sample_rate != self.sample_rate:
+            audio = resample(audio, self.model_sample_rate, self.sample_rate)
+
+        return float32_to_pcm16(audio)
