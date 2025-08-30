@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Minimal Silero TTS placeholder used for tests and local development."""
+
+from __future__ import annotations
 
 import logging
 import numpy as np
