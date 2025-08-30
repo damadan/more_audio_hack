@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from common.audio import float32_to_pcm16
+
 
 class SileroTTS:
     """Simple stub implementation that outputs silence.
@@ -27,5 +29,5 @@ class SileroTTS:
 
         duration = max(len(text) * 0.05, 0.2)  # seconds of audio
         samples = int(self.sample_rate * duration)
-        pcm = np.zeros(samples, dtype=np.int16)
-        return pcm.tobytes()
+        silence = np.zeros(samples, dtype=np.float32)
+        return float32_to_pcm16(silence)
