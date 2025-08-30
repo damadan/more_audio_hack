@@ -10,9 +10,6 @@ import numpy as np
 from rt_echo.server.buffer import RingBuffer16k
 from .stabilizer import Stabilizer
 
-STEP_SEC = 0.5
-WINDOW_SEC = 2.0
-
 
 class TTS(Protocol):
     """Protocol describing minimal text-to-speech interface."""
@@ -39,11 +36,12 @@ class EchoSession:
         self.asr = asr
         self.tts = tts
 
-        max_samples = int(config.asr_sr * WINDOW_SEC)
+        max_samples = int(config.asr_sr * config.window_sec)
         self.ring = RingBuffer16k(max_samples)
         self.stabilizer = Stabilizer()
         self.window_samples = max_samples
-        self.step_samples = int(config.asr_sr * STEP_SEC)
+        self.step_samples = int(config.asr_sr * config.step_sec)
+        self.step_sec = config.step_sec
         self.log = logging.getLogger(__name__)
 
     def push(self, data: bytes) -> None:
@@ -54,14 +52,14 @@ class EchoSession:
     async def tick(self, ws) -> None:
         """Process audio in a loop and stream synthesized speech.
 
-        Every ``STEP_SEC`` seconds the newest ``WINDOW_SEC`` window of audio is
+        Every ``config.step_sec`` seconds the newest ``config.window_sec`` window of audio is
         transcribed. Newly stabilized text is synthesized to speech and sent
         over the provided websocket ``ws``.
         """
 
         try:
             while True:
-                await asyncio.sleep(STEP_SEC)
+                await asyncio.sleep(self.step_sec)
                 self.log.debug("tick start")
 
                 window = self.ring.window(self.window_samples)
