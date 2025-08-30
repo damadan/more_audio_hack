@@ -1,0 +1,11 @@
+aiohttp
+websockets
+faster-whisper
+numpy
+webrtcvad
+onnxruntime
+piper-phonemize
+sounddevice
+resampy
+scipy
+pytest
