@@ -1,51 +1,28 @@
-from typing import cast
+from typing import Tuple, cast  # noqa: F401 (for compatibility, may be unused)
 
 import numpy as np
-
-try:
-    from scipy import signal
-except Exception:  # pragma: no cover
-    signal = None
-
-try:
-    import resampy
-except Exception:  # pragma: no cover
-    resampy = None
+from scipy.signal import resample_poly
 
 
-def float32_to_pcm16(audio: np.ndarray) -> bytes:
-    """Convert float32 numpy array to 16-bit PCM bytes."""
-    audio = np.asarray(audio, dtype=np.float32)
-    audio = np.clip(audio, -1.0, 1.0)
-    return cast(bytes, (audio * 32767).astype(np.int16).tobytes())
+def pcm16_to_float32(b: bytes) -> np.ndarray:
+    arr = np.frombuffer(b, dtype=np.int16)
+    return arr.astype(np.float32) / 32768.0
 
 
-def pcm16_to_float32(pcm: bytes) -> np.ndarray:
-    """Convert 16-bit PCM bytes to float32 numpy array."""
-    audio = np.frombuffer(pcm, dtype=np.int16).astype(np.float32)
-    return audio / 32767.0
+def float32_to_pcm16(w: np.ndarray) -> bytes:
+    w = np.clip(w, -1.0, 1.0).astype(np.float32)
+    return (w * 32767.0).astype(np.int16).tobytes()
 
 
-def resample(audio: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
-    """Resample audio from src_sr to dst_sr.
-
-    Uses resampy or scipy if available, otherwise falls back to linear
-    interpolation with NumPy.
-    """
-    audio = np.asarray(audio, dtype=np.float32)
+def resample(w: np.ndarray, src_sr: int, dst_sr: int) -> np.ndarray:
     if src_sr == dst_sr:
-        return audio
+        return w
+    from math import gcd
 
-    if resampy is not None:  # pragma: no cover - only used when available
-        return resampy.resample(audio, src_sr, dst_sr)
+    g = gcd(src_sr, dst_sr)
+    up, down = dst_sr // g, src_sr // g
+    return cast(np.ndarray, resample_poly(w, up, down)).astype(np.float32)
 
-    if signal is not None:  # pragma: no cover - only used when available
-        duration = audio.shape[0] / float(src_sr)
-        n_samples = int(round(duration * dst_sr))
-        return signal.resample(audio, n_samples)
 
-    # Fallback: simple linear interpolation
-    ratio = dst_sr / float(src_sr)
-    x_old = np.linspace(0, len(audio), num=len(audio), endpoint=False)
-    x_new = np.linspace(0, len(audio), num=int(len(audio) * ratio), endpoint=False)
-    return np.interp(x_new, x_old, audio).astype(np.float32)
+__all__ = ["pcm16_to_float32", "float32_to_pcm16", "resample"]
+

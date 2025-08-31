@@ -2,8 +2,10 @@ import argparse
 import asyncio
 import wave
 from pathlib import Path
+from typing import cast
 
 import websockets
+from websockets.legacy.client import WebSocketClientProtocol
 
 
 CHUNK_SAMPLES = 320  # 20ms @ 16kHz
@@ -12,7 +14,7 @@ CHANNELS = 1
 SAMPLE_WIDTH = 2  # bytes for PCM16
 
 
-async def send_audio(ws: websockets.WebSocketClientProtocol, wav_path: Path) -> None:
+async def send_audio(ws: WebSocketClientProtocol, wav_path: Path) -> None:
     with wave.open(str(wav_path), "rb") as wf:
         if wf.getframerate() != SAMPLE_RATE:
             raise ValueError(f"Unexpected sample rate: {wf.getframerate()}")
@@ -35,7 +37,7 @@ async def send_audio(ws: websockets.WebSocketClientProtocol, wav_path: Path) -> 
         await ws.send(b"")
 
 
-async def recv_audio(ws: websockets.WebSocketClientProtocol, out_path: Path) -> None:
+async def recv_audio(ws: WebSocketClientProtocol, out_path: Path) -> None:
     with out_path.open("wb") as out_file:
         async for message in ws:
             if isinstance(message, bytes):
@@ -56,8 +58,9 @@ async def main() -> None:
     out_path = Path(args.out)
 
     async with websockets.connect(uri) as ws:
-        recv_task = asyncio.create_task(recv_audio(ws, out_path))
-        await send_audio(ws, wav_path)
+        ws_proto = cast(WebSocketClientProtocol, ws)
+        recv_task = asyncio.create_task(recv_audio(ws_proto, out_path))
+        await send_audio(ws_proto, wav_path)
         await recv_task
 
     print(f"ffmpeg -f s16le -ar 16000 -ac 1 -i {out_path} out.wav -y")

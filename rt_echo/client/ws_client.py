@@ -30,8 +30,9 @@ async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
     backoff = 0.5
     while True:
         try:
-            async with websockets.connect(url) as ws, mic, player:
+            async with websockets.connect(url) as ws, mic:
                 backoff = 0.5  # Reset backoff after successful connection
+                player.start()
 
                 async def _sender() -> None:
                     while True:
@@ -41,7 +42,7 @@ async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
                 async def _receiver() -> None:
                     async for message in ws:
                         if isinstance(message, bytes):
-                            await player.play(message)
+                            player.play(message)
                         else:
                             logging.info(
                                 json.dumps({"type": "partial", "text": message})
@@ -59,6 +60,7 @@ async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
                 await asyncio.gather(*pending, return_exceptions=True)
                 for task in done:
                     task.result()
+                player.stop()
 
         except asyncio.CancelledError:
             # Propagate cancellation to allow graceful shutdown by context managers
