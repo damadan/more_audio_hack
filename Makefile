@@ -1,21 +1,22 @@
-.PHONY: run-server run-client lint typecheck test
+.PHONY: run-server logs run-gpu test-offline lint types tests
 
-run-server:
-	python -m server.server
+run-server: ## docker cpu
+	docker compose up -d --build
 
-run-client:
-	python - <<'PY'
-import asyncio
-from rt_echo.client import MicStreamer, PcmPlayer
-from rt_echo.client.ws_client import run
-asyncio.run(run("ws://localhost:8000", MicStreamer(), PcmPlayer()))
-PY
+logs:
+	docker compose logs -f
+
+run-gpu: ## docker gpu
+	docker compose --compatibility up -d --build
+
+test-offline:
+	python client_offline_test.py --ws ws://localhost:8000 --wav ru_test.wav
 
 lint:
 	ruff check .
 
-typecheck:
-	mypy server tests --ignore-missing-imports
+types:
+	mypy .
 
-test:
-	pytest
+tests:
+	pytest -q
