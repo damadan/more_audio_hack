@@ -7,6 +7,7 @@ import pytest
 
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from rt_echo.common.audio import float32_to_pcm16, resample
+from server.tts import ensure_pcm16_16k
 from server.tts_piper import PiperTTS
 
 
@@ -38,7 +39,8 @@ def test_synthesize(monkeypatch, tmp_path):
     )
 
     tts = PiperTTS(str(model_path), str(speaker_json))
-    pcm_bytes = tts.synthesize("hello")
+    out_audio, sr = tts.synthesize("hello")
+    pcm_bytes = ensure_pcm16_16k(out_audio, sr)
 
     expected = float32_to_pcm16(audio)
     assert pcm_bytes == expected
@@ -71,7 +73,8 @@ def test_resample(monkeypatch, tmp_path):
     )
 
     tts = PiperTTS(str(model_path), str(speaker_json), model_sample_rate=8_000)
-    pcm_bytes = tts.synthesize("hello")
+    out_audio, sr = tts.synthesize("hello")
+    pcm_bytes = ensure_pcm16_16k(out_audio, sr)
 
     expected_audio = resample(audio, 8_000, tts.sample_rate)
     expected = float32_to_pcm16(expected_audio)

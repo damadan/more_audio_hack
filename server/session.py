@@ -9,13 +9,14 @@ import numpy as np
 
 from rt_echo.server.buffer import RingBuffer16k
 from .stabilizer import Stabilizer
+from .tts import ensure_pcm16_16k
 
 
 class TTS(Protocol):
     """Protocol describing minimal text-to-speech interface."""
 
-    def synthesize(self, text: str) -> bytes:
-        """Synthesize ``text`` into PCM16 bytes."""
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
+        """Synthesize ``text`` into float32 audio and its sample rate."""
         ...
 
 
@@ -73,7 +74,8 @@ class EchoSession:
 
                 if delta:
                     start_tts = time.perf_counter()
-                    pcm = self.tts.synthesize(delta)
+                    audio, sr = self.tts.synthesize(delta)
+                    pcm = ensure_pcm16_16k(audio, sr)
                     asr_to_tts = time.perf_counter() - start_tts
 
                     start_play = time.perf_counter()

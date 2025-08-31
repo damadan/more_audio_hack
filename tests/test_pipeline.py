@@ -25,10 +25,10 @@ class DummyAsr:
 
 
 class DummyTTS:
-    """Stub TTS that returns non-empty PCM16 bytes."""
+    """Stub TTS that returns non-empty float audio."""
 
-    def synthesize(self, _text: str) -> bytes:
-        return b"\x00\x01" * 100
+    def synthesize(self, _text: str) -> tuple[np.ndarray, int]:
+        return np.zeros(200, dtype=np.float32), SAMPLE_RATE
 
 
 async def reader(ws, session) -> None:
