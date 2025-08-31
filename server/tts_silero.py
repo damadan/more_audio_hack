@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 import numpy as np
 
-from rt_echo.common.audio import float32_to_pcm16
-
 
 log = logging.getLogger(__name__)
 
@@ -29,12 +27,11 @@ class SileroTTS:
         self.device = device
         log.info("SileroTTS initialized speaker=%s", speaker)
 
-    def synthesize(self, text: str) -> bytes:
+    def synthesize(self, text: str) -> tuple[np.ndarray, int]:
         """Return a short silence placeholder for the given text."""
 
         duration = max(len(text) * 0.05, 0.2)  # seconds of audio
         samples = int(self.sample_rate * duration)
         silence = np.zeros(samples, dtype=np.float32)
-        pcm = float32_to_pcm16(silence)
-        log.debug("synthesize produced %d bytes", len(pcm))
-        return pcm
+        log.debug("synthesize produced %d samples", len(silence))
+        return silence, self.sample_rate
