@@ -1,50 +1,95 @@
-"""Minimal WebSocket echo server for CPU deployment."""
-
-from __future__ import annotations
-
 import asyncio
 import logging
-import os
+from typing import Optional
 
-from aiohttp import WSMsgType, web
+import websockets
+from websockets.server import WebSocketServerProtocol
 
-log = logging.getLogger(__name__)
-
-
-async def ws_handler(request: web.Request) -> web.StreamResponse:
-    """Echo binary messages back to the client."""
-    ws = web.WebSocketResponse()
-    await ws.prepare(request)
-    async for msg in ws:
-        if msg.type == WSMsgType.BINARY:
-            await ws.send_bytes(msg.data)
-    return ws
-
-
-async def healthz_handler(_request: web.Request) -> web.Response:
-    """Return a simple JSON health check."""
-    return web.json_response({"status": "ok"})
+# --- конфиг
+from rt_echo.common.config import load_config
+# --- ASR / TTS / сессия
+from rt_echo.server.asr import AsrEngine
+from rt_echo.server.session import EchoSession
+try:
+    from rt_echo.server.tts_piper import PiperTTS as TTSEngine
+except Exception:  # pragma: no cover - Piper may be optional
+    # fallback на Silero, если Piper не используется в проекте
+    from rt_echo.server.tts_silero import SileroTTS as TTSEngine
 
 
-async def start_server() -> None:
-    """Start a simple WebSocket server and log the port."""
-    port = int(os.getenv("WS_PORT", "8000"))
-    log.info("WS server on :%d", port)
-    app = web.Application()
-    app.router.add_get("/", ws_handler)
-    app.router.add_get("/healthz", healthz_handler)
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    log.info("/healthz ready")
-    await asyncio.Future()
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("rt-echo")
+
+cfg = load_config()  # читает env: ASR_MODEL, ASR_DEVICE, ASR_COMPUTE_TYPE, RU_SPEAKER, WS_PORT
+WS_PORT = getattr(cfg, "ws_port", 8000)
+
+asr_engine: Optional[AsrEngine] = None
+tts_engine: Optional[TTSEngine] = None
 
 
-def main() -> None:
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(start_server())
+async def ws_handler(ws: WebSocketServerProtocol) -> None:
+    """На каждое подключение — своя EchoSession."""
+    assert asr_engine and tts_engine
+    session = EchoSession(cfg, asr_engine, tts_engine)
+    writer_task = asyncio.create_task(session.tick(ws))  # периодический ASR→TTS→send
+    try:
+        async for msg in ws:
+            if isinstance(msg, bytes):
+                session.push(msg)  # PCM16@16k входящий блок
+    finally:
+        writer_task.cancel()
+
+
+async def health_server() -> None:
+    """Простой /healthz на 8001 (не мешает WS на 8000)."""
+
+    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        req = await reader.read(1024)
+        if b"GET /healthz" in req:
+            body = b'{"status":"ok"}'
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                + f"Content-Length: {len(body)}\r\n\r\n".encode()
+                + body
+            )
+        else:  # pragma: no cover - other paths are not used in tests
+            writer.write(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+        await writer.drain()
+        writer.close()
+
+    srv = await asyncio.start_server(handle, host="0.0.0.0", port=8001)
+    log.info("/healthz ready on :8001")
+    async with srv:
+        await srv.serve_forever()
+
+
+async def main() -> None:
+    global asr_engine, tts_engine
+    log.info(
+        "Loading ASR: model=%s device=%s compute=%s",
+        cfg.asr_model,
+        cfg.asr_device,
+        cfg.asr_compute_type,
+    )
+    asr_engine = AsrEngine(cfg.asr_model, cfg.asr_device, cfg.asr_compute_type)
+
+    log.info("Loading TTS engine…")
+    # PiperTTS обычно принимает путь к .onnx, SileroTTS — имя спикера.
+    try:
+        tts_engine = TTSEngine(cfg)  # если твой класс принимает cfg
+    except TypeError:  # pragma: no cover - compatibility path
+        # совместимость со старой сигнатурой
+        tts_engine = TTSEngine(getattr(cfg, "ru_speaker", "kseniya_16khz"))
+
+    ws_srv = await websockets.serve(ws_handler, "0.0.0.0", WS_PORT, max_size=2**23)
+    log.info("WS server on :%d", WS_PORT)
+
+    await asyncio.gather(ws_srv.wait_closed(), health_server())
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
+

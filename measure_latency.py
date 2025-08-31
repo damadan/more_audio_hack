@@ -3,8 +3,10 @@ import asyncio
 import time
 import wave
 from pathlib import Path
+from typing import cast
 
 import websockets
+from websockets.legacy.client import WebSocketClientProtocol
 
 CHUNK_SAMPLES = 320  # 20ms @ 16kHz
 SAMPLE_RATE = 16000
@@ -13,7 +15,7 @@ SAMPLE_WIDTH = 2  # bytes for PCM16
 CHUNK_DURATION = CHUNK_SAMPLES / SAMPLE_RATE
 
 
-async def send_audio(ws: websockets.WebSocketClientProtocol, wav_path: Path) -> float:
+async def send_audio(ws: WebSocketClientProtocol, wav_path: Path) -> float:
     """Stream audio to the websocket in 20ms chunks.
 
     Returns the timestamp of when the first chunk was sent.
@@ -47,7 +49,7 @@ async def send_audio(ws: websockets.WebSocketClientProtocol, wav_path: Path) -> 
     return t_send_first
 
 
-async def recv_first(ws: websockets.WebSocketClientProtocol) -> float:
+async def recv_first(ws: WebSocketClientProtocol) -> float:
     """Wait for the first bytes from the server and return their timestamp."""
     async for message in ws:
         if isinstance(message, bytes) and message:
@@ -64,8 +66,9 @@ async def main() -> None:
     wav_path = Path(args.wav)
 
     async with websockets.connect(args.ws) as ws:
-        recv_task = asyncio.create_task(recv_first(ws))
-        t_send_first = await send_audio(ws, wav_path)
+        ws_proto = cast(WebSocketClientProtocol, ws)
+        recv_task = asyncio.create_task(recv_first(ws_proto))
+        t_send_first = await send_audio(ws_proto, wav_path)
         t_recv_first = await recv_task
 
     latency_ms = (t_recv_first - t_send_first) * 1000
