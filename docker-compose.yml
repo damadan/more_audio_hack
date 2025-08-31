@@ -14,26 +14,21 @@ services:
     ports:
       - "8000:8000"
 
-  gpu:
+  echo-asr-tts-gpu:
     profiles: ["gpu"]
     build:
-      context: .
-      args:
-        BASE_IMAGE: nvidia/cuda:12.1-runtime
+      context: ./server
+      dockerfile: Dockerfile.gpu
     environment:
-      ASR_MODEL: ${ASR_MODEL:-small}
-      ASR_DEVICE: ${ASR_DEVICE:-cpu}
-      ASR_COMPUTE_TYPE: ${ASR_COMPUTE_TYPE:-int8}
-      ASR_SR: ${ASR_SR:-16000}
-      WS_PORT: ${WS_PORT:-8000}
-      HTTP_PORT: ${HTTP_PORT:-8080}
-      TTS_ENGINE: ${TTS_ENGINE:-piper}
-      RU_SPEAKER: ${RU_SPEAKER:-kseniya_16khz}
+      ASR_MODEL: large-v3
+      ASR_DEVICE: cuda
+      ASR_COMPUTE_TYPE: float16
     deploy:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     ports:
-      - "${HTTP_PORT:-8080}:${HTTP_PORT:-8080}"
-      - "${WS_PORT:-8000}:${WS_PORT:-8000}"
+      - "8000:8000"
