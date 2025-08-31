@@ -13,9 +13,9 @@ from .player import PcmPlayer
 async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
     """Connect to a websocket server and stream audio in both directions.
 
-    Automatically reconnects with exponential backoff (max 5 s) when the
-    connection drops. Audio threads are safely shut down on disconnect or
-    cancellation.
+    Automatically reconnects with exponential backoff (starting at 0.5 s,
+    doubling each attempt up to a maximum of 5 s) when the connection drops.
+    Audio threads are safely shut down on disconnect or cancellation.
 
     Parameters
     ----------
@@ -27,11 +27,11 @@ async def run(url: str, mic: MicStreamer, player: PcmPlayer) -> None:
         PCM player consuming audio blocks from the server.
     """
 
-    backoff = 1.0
+    backoff = 0.5
     while True:
         try:
             async with websockets.connect(url) as ws, mic, player:
-                backoff = 1.0  # Reset backoff after successful connection
+                backoff = 0.5  # Reset backoff after successful connection
 
                 async def _sender() -> None:
                     while True:
