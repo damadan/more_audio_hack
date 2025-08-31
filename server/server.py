@@ -6,24 +6,39 @@ import asyncio
 import logging
 import os
 
-import websockets
+from aiohttp import WSMsgType, web
 
 log = logging.getLogger(__name__)
 
 
-async def handler(ws: websockets.WebSocketServerProtocol) -> None:
+async def ws_handler(request: web.Request) -> web.StreamResponse:
     """Echo binary messages back to the client."""
-    async for message in ws:
-        if isinstance(message, bytes):
-            await ws.send(message)
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    async for msg in ws:
+        if msg.type == WSMsgType.BINARY:
+            await ws.send_bytes(msg.data)
+    return ws
+
+
+async def healthz_handler(_request: web.Request) -> web.Response:
+    """Return a simple JSON health check."""
+    return web.json_response({"status": "ok"})
 
 
 async def start_server() -> None:
     """Start a simple WebSocket server and log the port."""
     port = int(os.getenv("WS_PORT", "8000"))
     log.info("WS server on :%d", port)
-    async with websockets.serve(handler, "0.0.0.0", port):
-        await asyncio.Future()
+    app = web.Application()
+    app.router.add_get("/", ws_handler)
+    app.router.add_get("/healthz", healthz_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    log.info("/healthz ready")
+    await asyncio.Future()
 
 
 def main() -> None:
